@@ -1,16 +1,17 @@
 import json
 from typing import Optional, AsyncIterator
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
-from app.database import get_db, AsyncSessionLocal
-from app.models.db import Conversation, Message
+
+from app.dynamodb import get_conversations_table, get_messages_table, get_dynamodb_resource
+from app.repositories.conversations import ConversationRepository
+from app.repositories.messages import MessageRepository
+from app.routers.conversations import get_conv_repo, _get_owned_conversation
 from app.schemas.message import SendMessageRequest, MessageResponse, MessageListResponse
 from app.auth import get_current_user, UserClaims
 from app.llm import get_provider, LLMMessage
 from app.tools.registry import get_tools_for_conversation, get_tool
-from app.routers.conversations import _get_owned_conversation
 from app.middleware.rate_limit import limiter, rate_limit_string
 from app.config import settings
 import structlog
@@ -19,49 +20,8 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 
-def _db_message_to_llm(msg: Message) -> LLMMessage:
-    return LLMMessage(
-        role=msg.role,
-        content=msg.content,
-        tool_calls=msg.tool_calls,
-        tool_call_id=msg.tool_call_id,
-    )
-
-
-async def _get_history(conv: Conversation, db: AsyncSession) -> list[Message]:
-    limit = conv.max_history_messages or settings.MAX_HISTORY_MESSAGES
-    result = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conv.id)
-        .order_by(Message.created_at.desc())
-        .limit(limit)
-    )
-    msgs = result.scalars().all()
-    return list(reversed(msgs))
-
-
-async def _save_message(
-    db: AsyncSession,
-    conversation_id: str,
-    role: str,
-    content: Optional[str] = None,
-    tool_calls=None,
-    tool_call_id: Optional[str] = None,
-    model_used: Optional[str] = None,
-    token_count: Optional[int] = None,
-) -> Message:
-    msg = Message(
-        conversation_id=conversation_id,
-        role=role,
-        content=content,
-        tool_calls=tool_calls,
-        tool_call_id=tool_call_id,
-        model_used=model_used,
-        token_count=token_count,
-    )
-    db.add(msg)
-    await db.flush()
-    return msg
+async def get_msg_repo(msg_table=Depends(get_messages_table)) -> MessageRepository:
+    return MessageRepository(msg_table)
 
 
 @router.get(
@@ -73,31 +33,15 @@ async def _save_message(
 async def list_messages(
     conversation_id: str,
     limit: int = Query(50, ge=1, le=200),
-    before: Optional[str] = Query(None, description="Cursor: message ID to paginate before"),
-    db: AsyncSession = Depends(get_db),
+    before: Optional[str] = Query(None, description="Cursor: encode of last seen sort_key"),
+    conv_repo: ConversationRepository = Depends(get_conv_repo),
+    msg_repo: MessageRepository = Depends(get_msg_repo),
     user: UserClaims = Depends(get_current_user),
 ):
-    await _get_owned_conversation(conversation_id, user.sub, db)
+    await _get_owned_conversation(conversation_id, user.sub, conv_repo)
 
-    query = select(Message).where(Message.conversation_id == conversation_id)
-
-    if before:
-        cursor_msg = await db.get(Message, before)
-        if cursor_msg:
-            query = query.where(Message.created_at < cursor_msg.created_at)
-
-    query = query.order_by(Message.created_at.asc()).limit(limit + 1)
-    result = await db.execute(query)
-    msgs = result.scalars().all()
-
-    has_more = len(msgs) > limit
-    msgs = list(reversed(msgs[:limit]))
-
-    return MessageListResponse(
-        items=[MessageResponse.model_validate(m) for m in msgs],
-        has_more=has_more,
-        next_cursor=msgs[0].id if has_more and msgs else None,
-    )
+    items, has_more, next_cursor = await msg_repo.list(conversation_id, limit, before)
+    return MessageListResponse(items=items, has_more=has_more, next_cursor=next_cursor)
 
 
 @router.post(
@@ -113,25 +57,38 @@ async def send_message(
     conversation_id: str,
     body: SendMessageRequest,
     stream: bool = Query(False),
-    db: AsyncSession = Depends(get_db),
+    conv_repo: ConversationRepository = Depends(get_conv_repo),
+    msg_repo: MessageRepository = Depends(get_msg_repo),
     user: UserClaims = Depends(get_current_user),
 ):
-    conv = await _get_owned_conversation(conversation_id, user.sub, db)
+    conv = await _get_owned_conversation(conversation_id, user.sub, conv_repo)
     request.state.user = user
 
-    # Save user message
-    user_msg = await _save_message(db, conv.id, "user", content=body.content)
+    await msg_repo.add(conv.id, "user", content=body.content)
 
-    history = await _get_history(conv, db)
-    llm_messages = [_db_message_to_llm(m) for m in history]
+    if conv.title == "New Conversation" and body.content:
+        title = body.content.replace("\n", " ").strip()[:100]
+        await conv_repo.set_title(conv.id, title)
+
+    max_msgs = conv.max_history_messages or settings.MAX_HISTORY_MESSAGES
+    llm_messages = await msg_repo.get_history(conv.id, max_msgs)
 
     provider = get_provider(conv.provider)
     tools_list = get_tools_for_conversation(conv.enabled_tools or [])
-    tool_schemas = [t.to_anthropic_schema() if conv.provider == "anthropic" else t.to_openai_schema() for t in tools_list]
+    tool_schemas = [
+        t.to_anthropic_schema() if conv.provider == "anthropic" else t.to_openai_schema()
+        for t in tools_list
+    ]
+
+    headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",  # This is the "kill switch" for buffering
+        "Connection": "keep-alive",
+        "Transfer-Encoding": "chunked"
+    }
 
     if stream:
-        await db.commit()
-
         async def sse_generator() -> AsyncIterator[str]:
             full_content: list[str] = []
             try:
@@ -145,22 +102,23 @@ async def send_message(
                     yield f"data: {json.dumps({'content': chunk})}\n\n"
                 yield "data: [DONE]\n\n"
                 if full_content:
-                    async with AsyncSessionLocal() as save_db:
-                        await _save_message(
-                            save_db, conv.id, "assistant",
+                    async with get_dynamodb_resource() as ddb:
+                        tbl = await ddb.Table(settings.DYNAMODB_TABLE_MESSAGES)
+                        save_repo = MessageRepository(tbl)
+                        await save_repo.add(
+                            conv.id, "assistant",
                             content="".join(full_content),
                             model_used=conv.model,
                         )
-                        await save_db.commit()
             except Exception as e:
                 logger.error("streaming error", error=str(e), conversation_id=conv.id)
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-        return StreamingResponse(sse_generator(), media_type="text/event-stream")
+        return StreamingResponse(sse_generator(), media_type="text/event-stream", headers=headers)
 
-    # Non-streaming: run agentic tool loop
-    final_response = None
-    for _ in range(10):  # max tool iterations
+    # Non-streaming: agentic tool loop
+    final_response: Optional[MessageResponse] = None
+    for _ in range(10):
         llm_resp = await provider.complete(
             messages=llm_messages,
             model=conv.model,
@@ -169,9 +127,8 @@ async def send_message(
         )
 
         if llm_resp.tool_calls:
-            # Save assistant message with tool calls
-            asst_msg = await _save_message(
-                db, conv.id, "assistant",
+            await msg_repo.add(
+                conv.id, "assistant",
                 content=llm_resp.content,
                 tool_calls=llm_resp.tool_calls,
                 model_used=llm_resp.model,
@@ -183,20 +140,16 @@ async def send_message(
                 tool_calls=llm_resp.tool_calls,
             ))
 
-            # Execute each tool and append results
             for tc in llm_resp.tool_calls:
                 tool_name = tc["function"]["name"]
                 tool_args_raw = tc["function"]["arguments"]
                 tool_args = json.loads(tool_args_raw) if isinstance(tool_args_raw, str) else tool_args_raw
                 tool = get_tool(tool_name)
 
-                if tool:
-                    tool_result = await tool.execute(**tool_args)
-                else:
-                    tool_result = f"Tool '{tool_name}' not found"
+                tool_result = await tool.execute(**tool_args) if tool else f"Tool '{tool_name}' not found"
 
-                await _save_message(
-                    db, conv.id, "tool",
+                await msg_repo.add(
+                    conv.id, "tool",
                     content=str(tool_result),
                     tool_call_id=tc["id"],
                 )
@@ -206,8 +159,8 @@ async def send_message(
                     tool_call_id=tc["id"],
                 ))
         else:
-            final_response = await _save_message(
-                db, conv.id, "assistant",
+            final_response = await msg_repo.add(
+                conv.id, "assistant",
                 content=llm_resp.content,
                 model_used=llm_resp.model,
                 token_count=llm_resp.input_tokens + llm_resp.output_tokens,
@@ -219,9 +172,7 @@ async def send_message(
             "error": {"code": "tool_loop_exceeded", "message": "Max tool iterations exceeded", "details": {}}
         })
 
-    await db.commit()
-    await db.refresh(final_response)
-    return MessageResponse.model_validate(final_response)
+    return final_response
 
 
 @router.delete(
@@ -232,11 +183,9 @@ async def send_message(
 )
 async def clear_messages(
     conversation_id: str,
-    db: AsyncSession = Depends(get_db),
+    conv_repo: ConversationRepository = Depends(get_conv_repo),
+    msg_repo: MessageRepository = Depends(get_msg_repo),
     user: UserClaims = Depends(get_current_user),
 ):
-    await _get_owned_conversation(conversation_id, user.sub, db)
-    await db.execute(
-        delete(Message).where(Message.conversation_id == conversation_id)
-    )
-    await db.commit()
+    await _get_owned_conversation(conversation_id, user.sub, conv_repo)
+    await msg_repo.delete_all(conversation_id)

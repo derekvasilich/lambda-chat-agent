@@ -6,6 +6,8 @@ FUNCTION_NAME="chat-agent"
 PYTHON_VERSION="3.11"
 BUILD_DIR="dist"
 ZIP_FILE="deployment_package.zip"
+AWS_CA_CERT_URL="https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem"
+PLATFORM=manylinux2014_aarch64
 
 echo "🚀 Starting automated build for $FUNCTION_NAME..."
 
@@ -15,13 +17,18 @@ mkdir -p $BUILD_DIR
 
 # 3. Export dependencies using uv (No hashes, no dev tools)
 echo "📦 Exporting dependencies..."
-uv export --format requirements-txt --no-hashes --no-dev --no-emit-project > requirements.txt
+uv export \
+    --format requirements-txt \
+    --no-hashes \
+    --no-dev \
+    --no-emit-project > requirements.txt
 
 # 4. Install dependencies for Linux (Critical for Mac users)
 # We use --only-binary=:all: to ensure we get Linux-compatible wheels
-echo "📥 Installing dependencies for Linux..."
+echo "📥 Installing dependencies for $PLATFORM..."
 pip install \
-    --platform manylinux2014_x86_64 \
+    --quiet \
+    --platform $PLATFORM \
     --target $BUILD_DIR \
     --implementation cp \
     --python-version $PYTHON_VERSION \
@@ -29,13 +36,16 @@ pip install \
     --upgrade \
     -r requirements.txt
 
+# Downloading AWS public CA certificate bundle
+echo "🔑 Downloading AWS public CA certificate bundle..."
+curl  --silent --fail -o global-bundle.pem $AWS_CA_CERT_URL
+
 # 5. Copy application code and other important deps
 echo "📂 Copying app code..."
 cp -r app $BUILD_DIR/
-cp -r migrations $BUILD_DIR/
-cp -r global-bundle.pem $BUILD_DIR/
-cp -r alembic.ini $BUILD_DIR/
-cp -r migrate.py $BUILD_DIR/
+cp -r scripts $BUILD_DIR/
+cp run.sh $BUILD_DIR/
+mv global-bundle.pem $BUILD_DIR/
 
 # 6. Create ZIP (from inside the dist folder)
 echo "🗜️ Creating deployment package..."

@@ -1,14 +1,15 @@
 import time
+
 from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from app.database import get_db
+
+from app.dynamodb import get_conversations_table
 from app.schemas.health import HealthResponse
 from app.llm.registry import list_providers
 from app.config import settings
 
 router = APIRouter()
 _start_time = time.time()
+
 
 @router.get(
     "/health",
@@ -17,15 +18,13 @@ _start_time = time.time()
     description="Returns server status, DB connectivity, LLM reachability, app version, and uptime.",
     tags=["Health"],
 )
-async def health(db: AsyncSession = Depends(get_db)):
-    # DB check
+async def health(conv_table=Depends(get_conversations_table)):
     try:
-        await db.execute(text("SELECT 1"))
+        await conv_table.load()
         db_status = "ok"
     except Exception as e:
         db_status = f"error: {e}"
 
-    # LLM checks
     providers = list_providers()
     llm_status = {}
     for name, provider in providers.items():

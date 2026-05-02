@@ -5,8 +5,6 @@ from typing import List
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    DATABASE_URL: str = "sqlite+aiosqlite:///./chat_agent.db"
-
     OAUTH2_JWKS_URL: str = ""
     OAUTH2_AUDIENCE: str = ""
 
@@ -25,6 +23,12 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
     APP_VERSION: str = "0.1.0"
     LOG_LEVEL: str = "INFO"
+
+    DYNAMODB_TABLE_CONVERSATIONS: str = "chat_conversations"
+    DYNAMODB_TABLE_MESSAGES: str = "chat_messages"
+    DYNAMODB_ENDPOINT_URL: str = ""  # empty = real AWS; "http://localhost:8000" for DynamoDB Local
+    AWS_REGION: str = "us-east-1"
+    CONVERSATION_TTL_DAYS: int = 0  # 0 = no TTL
 
     @property
     def cors_origins_list(self) -> List[str]:

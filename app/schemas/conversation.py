@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List, Any
+from typing import Optional, List
 
 
 class ConversationCreate(BaseModel):
@@ -33,16 +33,13 @@ class ConversationResponse(BaseModel):
     system_prompt: Optional[str]
     provider: str
     model: str
+    max_history_messages: Optional[int] = None
     enabled_tools: List[str]
     created_at: datetime
     updated_at: datetime
     first_message: Optional[FirstMessageResponse] = None
 
-    model_config = {"from_attributes": True}
-
 
 class ConversationListResponse(BaseModel):
     items: List[ConversationResponse]
-    total: int
-    page: int
-    page_size: int
+    next_cursor: Optional[str] = None

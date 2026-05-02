@@ -112,6 +112,8 @@ class AnthropicProvider(BaseLLMProvider):
             return f"error: {e}"
 
     async def list_models(self) -> List[Dict[str, str]]:
+        if not settings.ANTHROPIC_API_KEY:
+            return []
         try:
             models = []
             response = await self._client.models.list()
@@ -119,8 +121,4 @@ class AnthropicProvider(BaseLLMProvider):
                 models.append({"id": model.id, "name": model.display_name})
             return models
         except Exception:
-            return [
-                {"id": "claude-opus-4-7", "name": "Claude Opus 4.7"},
-                {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6"},
-                {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5"},
-            ]
+            return []

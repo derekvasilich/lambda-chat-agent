@@ -1,27 +1,13 @@
-# import asyncio
-
-# # This patches the event loop to prevent the 'Device or resource busy' error
-# class SimpleResolver(asyncio.DefaultEventLoopPolicy):
-#     def get_event_loop(self):
-#         loop = super().get_event_loop()
-#         # This is a workaround for Python 3.12 DNS issues in Lambda
-#         return loop
-
-# # Apply the patch immediately
-# asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-
 import structlog
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from mangum import Mangum
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.config import settings
-from app.database import engine, Base
 from app.middleware.rate_limit import limiter
 from app.routers import health, conversations, messages, config, models
 
@@ -36,16 +22,12 @@ structlog.configure(
     ),
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Log startup for CloudWatch debugging
-    print("Lambda Cold Start: Initializing resources...")
-    # Skip Base.metadata.create_all here for speed. 
-    # Run it once manually or via a migration script.
-    # run_migrations()
+    print("Lambda Cold Start: DynamoDB backend ready.")
     yield
-    # Clean up on shutdown
-    await engine.dispose()
+
 
 app = FastAPI(
     title="Chat Agent API",
@@ -71,7 +53,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# Structured error handler
+
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
     if hasattr(exc, "status_code") and hasattr(exc, "detail"):
@@ -88,7 +70,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
         content={"error": {"code": "internal_error", "message": "Internal server error", "details": {}}},
     )
 
-# Routers
+
 PREFIX = "/v1"
 
 app.include_router(health.router, prefix=PREFIX)
@@ -96,5 +78,3 @@ app.include_router(conversations.router, prefix=PREFIX)
 app.include_router(messages.router, prefix=PREFIX)
 app.include_router(config.router, prefix=PREFIX)
 app.include_router(models.router, prefix=PREFIX)
-
-handler = Mangum(app, lifespan="on");

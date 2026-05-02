@@ -1,29 +1,45 @@
 version: "3.9"
 
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: chatuser
-      POSTGRES_PASSWORD: chatpass
-      POSTGRES_DB: chat_agent
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8000:8000"
+    command: -jar DynamoDBLocal.jar -sharedDb -inMemory
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chatuser -d chat_agent"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/shell/ || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  init:
+    build: .
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+    environment:
+      DYNAMODB_ENDPOINT_URL: http://dynamodb-local:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      DYNAMODB_TABLE_CONVERSATIONS: ${DYNAMODB_TABLE_CONVERSATIONS:-chat_conversations}
+      DYNAMODB_TABLE_MESSAGES: ${DYNAMODB_TABLE_MESSAGES:-chat_messages}
+    command: python scripts/create_tables.py
+
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "8080:8080"
     depends_on:
-      db:
-        condition: service_healthy
+      init:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql+asyncpg://chatuser:chatpass@db:5432/chat_agent
+      DYNAMODB_ENDPOINT_URL: http://dynamodb-local:8000
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-local}
+      DYNAMODB_TABLE_CONVERSATIONS: ${DYNAMODB_TABLE_CONVERSATIONS:-chat_conversations}
+      DYNAMODB_TABLE_MESSAGES: ${DYNAMODB_TABLE_MESSAGES:-chat_messages}
       OAUTH2_JWKS_URL: ${OAUTH2_JWKS_URL:-}
       OAUTH2_AUDIENCE: ${OAUTH2_AUDIENCE:-}
       DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-anthropic}
@@ -34,8 +50,4 @@ services:
       MAX_HISTORY_MESSAGES: ${MAX_HISTORY_MESSAGES:-50}
       DEFAULT_SYSTEM_PROMPT: ${DEFAULT_SYSTEM_PROMPT:-You are a helpful AI assistant.}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
-    command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
-
-volumes:
-  pgdata:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080

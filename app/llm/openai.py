@@ -114,6 +114,8 @@ class OpenAIProvider(BaseLLMProvider):
             return f"error: {e}"
 
     async def list_models(self) -> List[Dict[str, str]]:
+        if not (self._client.api_key or settings.OPENAI_API_KEY):
+            return []
         if self.provider_name == "custom":
             return [{
                 "id": settings.CUSTOM_LLM_MODEL, 
@@ -130,9 +132,4 @@ class OpenAIProvider(BaseLLMProvider):
                 if model.id.startswith(self._CHAT_MODEL_PREFIXES)
             ]
         except Exception:
-            return [
-                {"id": "gpt-4o", "name": "GPT-4o"},
-                {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
-                {"id": "gpt-4-turbo", "name": "GPT-4 Turbo"},
-                {"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo"},
-            ]
+            return []

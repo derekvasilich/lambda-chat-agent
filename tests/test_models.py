@@ -1,10 +1,10 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 
 def make_mock_providers():
     mock_p = MagicMock()
-    mock_p.list_models.return_value = [{"id": "mock-model", "name": "Mock Model"}]
+    mock_p.list_models = AsyncMock(return_value=[{"id": "mock-model", "name": "Mock Model"}])
     return {"mock": mock_p}
 
 

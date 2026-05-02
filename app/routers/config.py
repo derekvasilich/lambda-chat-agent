@@ -1,11 +1,9 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from app.database import get_db
-from app.models.db import Conversation
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.routers.conversations import get_conv_repo, _get_owned_conversation
+from app.repositories.conversations import ConversationRepository
 from app.schemas.config import ConversationConfigResponse, ConversationConfigUpdate
 from app.auth import get_current_user, UserClaims
-from app.routers.conversations import _get_owned_conversation
 
 router = APIRouter()
 
@@ -18,10 +16,10 @@ router = APIRouter()
 )
 async def get_config(
     conversation_id: str,
-    db: AsyncSession = Depends(get_db),
+    repo: ConversationRepository = Depends(get_conv_repo),
     user: UserClaims = Depends(get_current_user),
 ):
-    conv = await _get_owned_conversation(conversation_id, user.sub, db)
+    conv = await _get_owned_conversation(conversation_id, user.sub, repo)
     return ConversationConfigResponse(
         conversation_id=conv.id,
         system_prompt=conv.system_prompt,
@@ -41,25 +39,15 @@ async def get_config(
 async def update_config(
     conversation_id: str,
     body: ConversationConfigUpdate,
-    db: AsyncSession = Depends(get_db),
+    repo: ConversationRepository = Depends(get_conv_repo),
     user: UserClaims = Depends(get_current_user),
 ):
-    conv = await _get_owned_conversation(conversation_id, user.sub, db)
-
-    if body.system_prompt is not None:
-        conv.system_prompt = body.system_prompt
-    if body.provider is not None:
-        conv.provider = body.provider
-    if body.model is not None:
-        conv.model = body.model
-    if body.max_history_messages is not None:
-        conv.max_history_messages = body.max_history_messages
-    if body.enabled_tools is not None:
-        conv.enabled_tools = body.enabled_tools
-
-    await db.commit()
-    await db.refresh(conv)
-
+    conv = await repo.update_config(conversation_id, user.sub, body)
+    if conv is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "not_found", "message": "Conversation not found", "details": {}}},
+        )
     return ConversationConfigResponse(
         conversation_id=conv.id,
         system_prompt=conv.system_prompt,
