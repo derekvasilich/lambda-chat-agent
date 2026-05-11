@@ -1,6 +1,6 @@
 # Chat Agent API
 
-Production-ready AI agent chat API with per-user conversation memory, multi-LLM support, OAuth2/JWT authentication, custom tool integration, and full OpenAPI documentation.
+A nearly production-ready AI agent chat API with per-user conversation memory, multi-LLM support, OAuth2/JWT authentication, custom tool integration, and full OpenAPI documentation.
 
 ## Project Structure
 
@@ -9,21 +9,23 @@ chat-agent/
 ├── app/
 │   ├── main.py              # FastAPI app, CORS, rate limiting, lifespan, includes AWS Lambda support
 │   ├── config.py            # Pydantic settings from .env
-│   ├── database.py          # Async SQLAlchemy engine + session
-│   ├── models/db.py         # Conversation & Message ORM models
-│   ├── schemas/             # Pydantic v2 request/response schemas
-│   ├── auth/jwt.py          # OAuth2 JWKS validation (dev mode: no-verify)
+│   ├── dynamodb.py          # 
+│   ├── models/db.py         # Conversation & Message models
+│   ├── auth/jwt.py          # OAuth2 JWKS validation for AWS Cognito
 │   ├── llm/                 # Pluggable providers: Anthropic, OpenAI, Bedrock, and Custom
 │   ├── tools/               # Tool registry + Calculator + WebSearch stub
 │   ├── routers/             # One router per resource group
 │   └── middleware/          # SlowAPI rate limiter keyed by user sub
-├── migrations/              # Alembic Migrations
+├── scripts/
+│   └── create_tables.py     # a Lambda script for generating the DynamoDB schema
 ├── tests/                   # 23 async tests (in-memory SQLite, mocked LLM)
+├── deploy.sh                # a shell script for building the app and distributing it to an AWS Lambda
 ├── Dockerfile
 ├── docker-compose.yml       # app + PostgreSQL
+├── dynamoDB.md              
 ├── migrate.py               # AWS Lambda function to migrate RDS database
-├── deploy.sh                # deploys the service to AWS Lambda
-└── pyproject.toml
+├── pyproject.toml           # main project dependencies for `uv` package manager
+└── run.sh                   # a shell script for running the Lambda using uvicorn with the AWS Lambda Web Adapter layer
 ```
 
 ## 1. Install & Run Locally
