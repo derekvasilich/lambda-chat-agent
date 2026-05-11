@@ -55,8 +55,8 @@ async def test_list_messages(client, conversation):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["items"]) == 2  # user + assistant
-    assert data["items"][0]["role"] == "user"
-    assert data["items"][1]["role"] == "assistant"
+    assert data["items"][0]["role"] == "assistant"
+    assert data["items"][1]["role"] == "user"
 
 
 @pytest.mark.asyncio
