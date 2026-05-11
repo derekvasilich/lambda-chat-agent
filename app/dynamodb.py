@@ -6,7 +6,6 @@ from app.config import settings
 
 _session = aioboto3.Session()
 
-
 @asynccontextmanager
 async def get_dynamodb_resource():
     kwargs = {"region_name": settings.AWS_REGION}

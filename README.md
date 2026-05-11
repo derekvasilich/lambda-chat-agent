@@ -2,6 +2,60 @@
 
 A nearly production-ready AI agent chat API with per-user conversation memory, multi-LLM support, OAuth2/JWT authentication, custom tool integration, and full OpenAPI documentation.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    User([User Browser])
+
+    subgraph Frontend["Static UI"]
+        CF[CloudFront]
+        S3[(S3 Bucket<br/>SPA assets)]
+    end
+
+    subgraph Auth["Authentication"]
+        Cognito[Cognito User Pool<br/>OAuth2 / JWKS]
+    end
+
+    subgraph API["API Layer"]
+        APIGW[API Gateway<br/>Cognito Authorizer]
+        Lambda[Lambda<br/>FastAPI + Lambda Web Adapter]
+    end
+
+    subgraph Data["Data"]
+        DDB[(DynamoDB<br/>conversations · messages)]
+    end
+
+    subgraph LLMs["LLM Providers"]
+        Bedrock[AWS Bedrock]
+        Anthropic[Anthropic API]
+        OpenAI[OpenAI API]
+        Custom[Custom<br/>OpenAI-compatible]
+    end
+
+    subgraph Tools["Tool Registry"]
+        Calc[Calculator]
+        Web[WebSearch]
+    end
+
+    User -->|HTTPS| CF
+    CF --> S3
+    User -->|OAuth2 sign-in| Cognito
+    Cognito -. JWT .-> User
+    User -->|Bearer JWT<br/>/v1/*| APIGW
+    APIGW -->|Verify via JWKS| Cognito
+    APIGW --> Lambda
+    Lambda <--> DDB
+    Lambda --> Bedrock
+    Lambda --> Anthropic
+    Lambda --> OpenAI
+    Lambda --> Custom
+    Lambda --> Calc
+    Lambda --> Web
+```
+
+**Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway's Cognito authorizer verifies the JWT (the Lambda re-validates against JWKS as a defense-in-depth check — see [app/auth/jwt.py](app/auth/jwt.py)). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
+
 ## Project Structure
 
 ```
@@ -9,19 +63,19 @@ chat-agent/
 ├── app/
 │   ├── main.py              # FastAPI app, CORS, rate limiting, lifespan, includes AWS Lambda support
 │   ├── config.py            # Pydantic settings from .env
-│   ├── dynamodb.py          # 
-│   ├── models/db.py         # Conversation & Message models
+│   ├── dynamodb.py          # helper function for accessing DynamoDB table resources
+│   ├── models/db.py         # Conversation & message models
 │   ├── auth/jwt.py          # OAuth2 JWKS validation for AWS Cognito
 │   ├── llm/                 # Pluggable providers: Anthropic, OpenAI, Bedrock, and Custom
 │   ├── tools/               # Tool registry + Calculator + WebSearch stub
 │   ├── routers/             # One router per resource group
 │   └── middleware/          # SlowAPI rate limiter keyed by user sub
 ├── scripts/
-│   └── create_tables.py     # a Lambda script for generating the DynamoDB schema
+│   └── create_tables.py     # a Lambda function for generating the DynamoDB schema
 ├── tests/                   # 23 async tests (in-memory SQLite, mocked LLM)
 ├── deploy.sh                # a shell script for building the app and distributing it to an AWS Lambda
 ├── Dockerfile
-├── docker-compose.yml       # app + PostgreSQL
+├── docker-compose.yml       # app + dynamodb (for running locally)
 ├── dynamoDB.md              
 ├── migrate.py               # AWS Lambda function to migrate RDS database
 ├── pyproject.toml           # main project dependencies for `uv` package manager
