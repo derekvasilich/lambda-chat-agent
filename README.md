@@ -18,8 +18,8 @@ flowchart LR
     end
 
     subgraph API["API Layer"]
-        APIGW[API Gateway<br/>Cognito Authorizer]
-        Lambda[Lambda<br/>FastAPI + Lambda Web Adapter]
+        APIGW[API Gateway]
+        Lambda[Lambda<br/>FastAPI + Lambda Web Adapter<br/>JWT validation via JWKS]
     end
 
     subgraph Data["Data"]
@@ -43,8 +43,8 @@ flowchart LR
     User -->|OAuth2 sign-in| Cognito
     Cognito -. JWT .-> User
     User -->|Bearer JWT<br/>/v1/*| APIGW
-    APIGW -->|Verify via JWKS| Cognito
     APIGW --> Lambda
+    Lambda -->|Verify JWT via JWKS| Cognito
     Lambda <--> DDB
     Lambda --> Bedrock
     Lambda --> Anthropic
@@ -54,7 +54,7 @@ flowchart LR
     Lambda --> Web
 ```
 
-**Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway's Cognito authorizer verifies the JWT (the Lambda re-validates against JWKS as a defense-in-depth check — see [app/auth/jwt.py](app/auth/jwt.py)). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
+**Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway forwards the request to Lambda, where the FastAPI app validates the JWT directly against Cognito's JWKS endpoint and verifies the expected claims — see [app/auth/jwt.py](app/auth/jwt.py). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
 
 ## Project Structure
 
