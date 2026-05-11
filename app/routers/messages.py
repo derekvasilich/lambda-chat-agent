@@ -4,7 +4,7 @@ from typing import Optional, AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.dynamodb import get_conversations_table, get_messages_table, get_dynamodb_resource
+from app.dynamodb import get_messages_table, get_dynamodb_resource
 from app.repositories.conversations import ConversationRepository
 from app.repositories.messages import MessageRepository
 from app.routers.conversations import get_conv_repo, _get_owned_conversation

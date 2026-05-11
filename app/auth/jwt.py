@@ -1,9 +1,8 @@
 import time
 from typing import Optional
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPBearer, OAuth2AuthorizationCodeBearer
 from jose import jwt, JWTError, ExpiredSignatureError
-from jose.backends import RSAKey
 import httpx
 from pydantic import BaseModel
 from app.config import settings
@@ -16,7 +15,6 @@ bearer_scheme = HTTPBearer(auto_error=True)
 _jwks_cache: dict = {}
 _jwks_fetched_at: float = 0
 _JWKS_TTL = 3600
-
 
 class UserClaims(BaseModel):
     sub: str
@@ -44,12 +42,45 @@ def _credentials_exception(detail: str = "Could not validate credentials") -> HT
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl=settings.OAUTH2_AUTH_URL,
+    tokenUrl=settings.OAUTH2_TOKEN_URL,
+)
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> UserClaims:
-    token = credentials.credentials
+        request: Request,
+        token: str = Depends(oauth2_scheme),
+    ):
+    try:
+        # API Gateway puts claims here after validation
+        aws_event = request.scope.get("aws.event")
+        if not aws_event:
+            return await get_current_user_using_jwt(token)
 
+        claims: dict = request.scope.get("aws.event", {}) \
+                        .get("requestContext", {}) \
+                        .get("authorizer", {}) \
+                        .get("claims")
+
+        if not claims:
+            raise _credentials_exception("Authorizer claims missing")
+
+        sub = claims.get('sub')
+        if not sub:
+            raise _credentials_exception("Authorizer claims missing")
+
+        # Map these to your existing UserClaim model
+        return UserClaims(
+            sub = sub,
+            email = claims.get("email"),
+            username = claims.get("cognito:username")
+        )
+    except Exception:
+        raise _credentials_exception("Invalid session")
+
+async def get_current_user_using_jwt(
+    token: str,
+) -> UserClaims:
     if not settings.OAUTH2_JWKS_URL:
         # Dev/test mode: accept any well-formed JWT without verification
         try:
@@ -80,8 +111,12 @@ async def get_current_user(
             token,
             key,
             algorithms=["RS256"],
-            audience=settings.OAUTH2_AUDIENCE or None,
-            options={"verify_aud": bool(settings.OAUTH2_AUDIENCE)},
+            audience=settings.OAUTH2_AUDIENCE,
+            issuer=settings.OAUTH2_ISSUER,
+            options={
+                "verify_aud": True,
+                "verify_iss": True,
+            },
         )
     except ExpiredSignatureError:
         raise _credentials_exception("Token has expired")
@@ -92,4 +127,8 @@ async def get_current_user(
     if not sub:
         raise _credentials_exception("Token missing 'sub' claim")
 
-    return UserClaims(sub=sub, email=payload.get("email"), username=payload.get("cognito:username"))
+    return UserClaims(
+        sub=sub,
+        email=payload.get("email"),
+        username=payload.get("cognito:username")
+    )

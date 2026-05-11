@@ -7,6 +7,11 @@ class Settings(BaseSettings):
 
     OAUTH2_JWKS_URL: str = ""
     OAUTH2_AUDIENCE: str = ""
+    OAUTH2_ISSUER: str = ""
+    OAUTH2_AUTH_URL: str = ""
+    OAUTH2_TOKEN_URL: str = ""
+
+    S3_BUCKET: str = ""
 
     DEFAULT_LLM_PROVIDER: str = "openai"
     DEFAULT_MODEL: str = "gpt-4o"

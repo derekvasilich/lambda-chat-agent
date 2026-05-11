@@ -1,3 +1,4 @@
+from fastapi.security import OAuth2AuthorizationCodeBearer
 import structlog
 import logging
 from contextlib import asynccontextmanager
@@ -28,7 +29,6 @@ async def lifespan(app: FastAPI):
     print("Lambda Cold Start: DynamoDB backend ready.")
     yield
 
-
 app = FastAPI(
     title="Chat Agent API",
     description="Production-ready AI agent chat API with per-user memory, multi-LLM support, and tool integration.",
@@ -36,6 +36,11 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
+    swagger_ui_oauth2_redirect_url="/docs/oauth2-redirect",
+    swagger_ui_init_oauth={
+        "usePkceWithAuthorizationCodeGrant": True,
+        "clientId": settings.OAUTH2_AUDIENCE,
+    },    
 )
 
 # CORS
@@ -52,7 +57,6 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
-
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):

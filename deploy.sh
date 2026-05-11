@@ -57,6 +57,8 @@ cd ..
 echo "☁️ Uploading to AWS Lambda..."
 aws lambda update-function-code \
     --function-name $FUNCTION_NAME \
-    --zip-file fileb://$ZIP_FILE
-
-echo "✅ Deployment complete!"
+    --zip-file fileb://$ZIP_FILE \
+    --no-cli-pager \
+    --query 'LastUpdateStatus' \
+    --output text \
+    && echo "✅ Deployment complete!" || "🚫 Deployment failed"
