@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Protocol
 import httpx
 import structlog
 
+from urllib.parse import urlparse
 from app.config import settings
 from app.openapi.auth import AuthResolver, RequestContext
 from app.openapi.discovery_context import get_discovery_context
@@ -171,7 +172,7 @@ class OpenAPIDiscoveryTool(BaseTool):
         except PermissionError as e:
             return _err(f"auth resolution failed: {e}")
 
-        url, query_params, body, header_params = _build_request(operation, arguments)
+        url, query_params, body, header_params = _build_request(entry.metadata, operation, arguments)
         # Header params from spec parameters get merged into auth headers
         merged_headers = {**headers, **header_params}
 
@@ -220,11 +221,15 @@ class OpenAPIDiscoveryTool(BaseTool):
 
 
 def _build_request(
+    metadata: SpecSourceResponse,
     operation: Operation,
     arguments: Dict[str, Any],
 ) -> tuple[str, Dict[str, Any], Optional[Dict[str, Any]], Dict[str, str]]:
     locations = operation.param_schema.get("x-param-locations", {})
+    parsed_url = urlparse(metadata.url)
     base_url = operation.servers[0].rstrip("/") if operation.servers else ""
+    if base_url[0] == "/":
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{base_url}"
     path = operation.path_template
 
     query_params: Dict[str, Any] = {}
