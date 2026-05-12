@@ -370,6 +370,8 @@ Treat this as a non-skippable step in the order of operations, not a stretch goa
 
 ## Tests
 
+For real public OpenAPI specs to test against end-to-end (Petstore, Open-Meteo, Nager.Date, GitHub REST), see [openapi-test-specs.md](openapi-test-specs.md).
+
 - **Parser:** fixture specs (Petstore, one with `$ref` chains, one with `oneOf/allOf`) → expected operation list.
 - **Embeddings:** deterministic test using a stubbed embedding function; verify retrieval ordering.
 - **Auth resolver:** env-var lookup, missing-cred error path.

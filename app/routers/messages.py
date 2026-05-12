@@ -144,26 +144,94 @@ async def send_message(
 
     if stream:
         async def sse_generator() -> AsyncIterator[str]:
-            full_content: list[str] = []
             try:
-                async for chunk in provider.stream(
-                    messages=llm_messages,
-                    model=conv.model,
-                    system_prompt=augmented_system_prompt,
-                    tools=tool_schemas,
-                ):
-                    full_content.append(chunk)
-                    yield f"data: {json.dumps({'content': chunk})}\n\n"
-                yield "data: [DONE]\n\n"
-                if full_content:
-                    async with get_dynamodb_resource() as ddb:
-                        tbl = await ddb.Table(settings.DYNAMODB_TABLE_MESSAGES)
-                        save_repo = MessageRepository(tbl)
-                        await save_repo.add(
+                for _ in range(10):
+                    tool_calls_emitted: Optional[list] = None
+                    assistant_text: Optional[str] = None
+                    model_used = conv.model
+                    input_tokens = 0
+                    output_tokens = 0
+
+                    async for event in provider.stream(
+                        messages=llm_messages,
+                        model=conv.model,
+                        system_prompt=augmented_system_prompt,
+                        tools=tool_schemas,
+                    ):
+                        etype = event.get("type")
+                        if etype == "text":
+                            yield f"data: {json.dumps({'content': event['text']})}\n\n"
+                        elif etype == "tool_calls":
+                            tool_calls_emitted = event.get("tool_calls") or []
+                            assistant_text = event.get("content")
+                            model_used = event.get("model") or model_used
+                            input_tokens = event.get("input_tokens") or 0
+                            output_tokens = event.get("output_tokens") or 0
+                        elif etype == "end":
+                            assistant_text = event.get("content") or ""
+                            model_used = event.get("model") or model_used
+                            input_tokens = event.get("input_tokens") or 0
+                            output_tokens = event.get("output_tokens") or 0
+
+                    if tool_calls_emitted:
+                        await msg_repo.add(
                             conv.id, "assistant",
-                            content="".join(full_content),
-                            model_used=conv.model,
+                            content=assistant_text,
+                            tool_calls=tool_calls_emitted,
+                            model_used=model_used,
+                            token_count=input_tokens + output_tokens,
                         )
+                        llm_messages.append(LLMMessage(
+                            role="assistant",
+                            content=assistant_text,
+                            tool_calls=tool_calls_emitted,
+                        ))
+
+                        for tc in tool_calls_emitted:
+                            tool_name = tc["function"]["name"]
+                            yield f"data: {json.dumps({'tool_call': {'id': tc['id'], 'name': tool_name}})}\n\n"
+
+                            tool_args_raw = tc["function"]["arguments"]
+                            try:
+                                tool_args = (
+                                    json.loads(tool_args_raw)
+                                    if isinstance(tool_args_raw, str)
+                                    else tool_args_raw
+                                )
+                            except json.JSONDecodeError:
+                                tool_args = {}
+
+                            tool = get_tool(tool_name)
+                            tool_result = (
+                                await tool.execute(**tool_args)
+                                if tool
+                                else f"Tool '{tool_name}' not found"
+                            )
+
+                            await msg_repo.add(
+                                conv.id, "tool",
+                                content=str(tool_result),
+                                tool_call_id=tc["id"],
+                            )
+                            llm_messages.append(LLMMessage(
+                                role="tool",
+                                content=str(tool_result),
+                                tool_call_id=tc["id"],
+                            ))
+                            yield f"data: {json.dumps({'tool_result': {'id': tc['id'], 'name': tool_name}})}\n\n"
+
+                        continue
+
+                    await msg_repo.add(
+                        conv.id, "assistant",
+                        content=assistant_text or "",
+                        model_used=model_used,
+                        token_count=input_tokens + output_tokens,
+                    )
+                    yield "data: [DONE]\n\n"
+                    return
+
+                yield f"data: {json.dumps({'error': 'Max tool iterations exceeded'})}\n\n"
             except Exception as e:
                 logger.error("streaming error", error=str(e), conversation_id=conv.id)
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"

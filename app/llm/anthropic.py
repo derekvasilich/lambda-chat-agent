@@ -1,7 +1,7 @@
 import json
 from typing import AsyncIterator, List, Dict, Any, Optional
 import anthropic as anthropic_sdk
-from app.llm.base import BaseLLMProvider, LLMMessage, LLMResponse
+from app.llm.base import BaseLLMProvider, LLMMessage, LLMResponse, StreamEvent
 from app.config import settings
 
 class AnthropicProvider(BaseLLMProvider):
@@ -89,7 +89,7 @@ class AnthropicProvider(BaseLLMProvider):
         system_prompt: Optional[str],
         tools: List[Dict[str, Any]],
         max_tokens: int = 4096,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamEvent]:
         kwargs: dict = dict(
             model=model,
             max_tokens=max_tokens,
@@ -97,10 +97,52 @@ class AnthropicProvider(BaseLLMProvider):
         )
         if system_prompt:
             kwargs["system"] = system_prompt
+        if tools:
+            kwargs["tools"] = tools
 
         async with self._client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
-                yield text
+                yield {"type": "text", "text": text}
+
+            final = await stream.get_final_message()
+
+        text_content: Optional[str] = None
+        tool_calls: List[Dict[str, Any]] = []
+        for block in final.content:
+            if block.type == "text":
+                text_content = (text_content or "") + block.text
+            elif block.type == "tool_use":
+                tool_calls.append({
+                    "id": block.id,
+                    "type": "function",
+                    "function": {"name": block.name, "arguments": json.dumps(block.input)},
+                })
+
+        usage = getattr(final, "usage", None)
+        input_tokens = getattr(usage, "input_tokens", 0) if usage else 0
+        output_tokens = getattr(usage, "output_tokens", 0) if usage else 0
+        model_used = getattr(final, "model", model)
+        finish_reason = getattr(final, "stop_reason", None) or "stop"
+
+        if tool_calls:
+            yield {
+                "type": "tool_calls",
+                "tool_calls": tool_calls,
+                "content": text_content,
+                "model": model_used,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "finish_reason": finish_reason,
+            }
+        else:
+            yield {
+                "type": "end",
+                "content": text_content or "",
+                "model": model_used,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "finish_reason": finish_reason,
+            }
 
     async def health_check(self) -> str:
         if not settings.ANTHROPIC_API_KEY:

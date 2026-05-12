@@ -183,6 +183,7 @@ class OpenAPIDiscoveryTool(BaseTool):
                     params=query_params or None,
                     json=body,
                     headers=merged_headers,
+                    follow_redirects=True,
                 )
             except httpx.HTTPError as e:
                 return _err(f"upstream request failed: {e}")

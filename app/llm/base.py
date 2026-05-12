@@ -1,6 +1,27 @@
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, List, Dict, Any, Optional
+from typing import AsyncIterator, List, Dict, Any, Optional, TypedDict, Literal
 from dataclasses import dataclass, field
+
+
+class StreamEvent(TypedDict, total=False):
+    """One event emitted from BaseLLMProvider.stream().
+
+    Three event types:
+    - {"type": "text", "text": "<delta>"} — partial assistant content
+    - {"type": "tool_calls", "tool_calls": [...], "content": Optional[str], "model": str, ...}
+      — emitted once when the LLM finishes a turn with tool calls. content is any
+      text content the model emitted alongside the tool calls (often None).
+    - {"type": "end", "content": str, "model": str, ...} — emitted once when the LLM
+      finishes a turn with no tool calls. content is the full accumulated text.
+    """
+    type: Literal["text", "tool_calls", "end"]
+    text: str
+    tool_calls: List[Dict[str, Any]]
+    content: Optional[str]
+    model: str
+    input_tokens: int
+    output_tokens: int
+    finish_reason: str
 
 
 @dataclass
@@ -44,7 +65,7 @@ class BaseLLMProvider(ABC):
         system_prompt: Optional[str],
         tools: List[Dict[str, Any]],
         max_tokens: int = 4096,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamEvent]:
         pass
 
     @abstractmethod

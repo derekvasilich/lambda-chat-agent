@@ -1,6 +1,6 @@
 from typing import AsyncIterator, List, Dict, Any, Optional
 import openai as openai_sdk
-from app.llm.base import BaseLLMProvider, LLMMessage, LLMResponse
+from app.llm.base import BaseLLMProvider, LLMMessage, LLMResponse, StreamEvent
 from app.config import settings
 
 
@@ -91,18 +91,78 @@ class OpenAIProvider(BaseLLMProvider):
         system_prompt: Optional[str],
         tools: List[Dict[str, Any]],
         max_tokens: int = 4096,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[StreamEvent]:
         kwargs: dict = dict(
             model=model,
             messages=self._build_messages(messages, system_prompt),
             max_tokens=max_tokens,
             stream=True,
+            stream_options={"include_usage": True},
         )
+        if tools:
+            kwargs["tools"] = tools
+
+        tool_calls_buffer: Dict[int, Dict[str, Any]] = {}
+        text_buffer: List[str] = []
+        finish_reason: Optional[str] = None
+        input_tokens = 0
+        output_tokens = 0
+        model_used = model
 
         async for chunk in await self._client.chat.completions.create(**kwargs):
-            delta = chunk.choices[0].delta if chunk.choices else None
+            if chunk.usage:
+                input_tokens = getattr(chunk.usage, "prompt_tokens", 0) or 0
+                output_tokens = getattr(chunk.usage, "completion_tokens", 0) or 0
+            model_used = chunk.model or model_used
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+
             if delta and delta.content:
-                yield delta.content
+                text_buffer.append(delta.content)
+                yield {"type": "text", "text": delta.content}
+
+            if delta and delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    buf = tool_calls_buffer.setdefault(idx, {
+                        "id": None,
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""},
+                    })
+                    if tc_delta.id:
+                        buf["id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            buf["function"]["name"] += tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            buf["function"]["arguments"] += tc_delta.function.arguments
+
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+
+        text_content = "".join(text_buffer) if text_buffer else None
+        if tool_calls_buffer:
+            tool_calls = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer)]
+            yield {
+                "type": "tool_calls",
+                "tool_calls": tool_calls,
+                "content": text_content,
+                "model": model_used,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "finish_reason": finish_reason or "tool_calls",
+            }
+        else:
+            yield {
+                "type": "end",
+                "content": text_content or "",
+                "model": model_used,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "finish_reason": finish_reason or "stop",
+            }
 
     async def health_check(self) -> str:
         if not (self._client.api_key or settings.OPENAI_API_KEY):
