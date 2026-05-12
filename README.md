@@ -23,7 +23,7 @@ flowchart LR
     end
 
     subgraph Data["Data"]
-        DDB[(DynamoDB<br/>conversations · messages)]
+        DDB[(DynamoDB<br/>conversations · messages · spec_sources)]
     end
 
     subgraph LLMs["LLM Providers"]
@@ -33,9 +33,20 @@ flowchart LR
         Custom[Custom<br/>OpenAI-compatible]
     end
 
+    subgraph Embed["Embeddings"]
+        Titan[Bedrock<br/>Titan v2]
+    end
+
     subgraph Tools["Tool Registry"]
         Calc[Calculator]
         Web[WebSearch]
+        OD[OpenAPI Discovery]
+    end
+
+    subgraph Specs["External OpenAPI Services"]
+        Svc1[Billing]
+        Svc2[Identity]
+        SvcN[...]
     end
 
     User -->|HTTPS| CF
@@ -52,9 +63,16 @@ flowchart LR
     Lambda --> Custom
     Lambda --> Calc
     Lambda --> Web
+    Lambda --> OD
+    OD --> Titan
+    OD -->|forwarded JWT or service creds| Svc1
+    OD -->|forwarded JWT or service creds| Svc2
+    OD -->|forwarded JWT or service creds| SvcN
 ```
 
 **Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway forwards the request to Lambda, where the FastAPI app validates the JWT directly against Cognito's JWKS endpoint and verifies the expected claims — see [app/auth/jwt.py](app/auth/jwt.py). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
+
+**OpenAPI tool discovery.** When `enabled_specs` is set on a conversation, the chat-agent injects a list of available API services into the system prompt and exposes the `openapi_discovery` tool. The model uses three actions on that tool: `list_specs` (what services exist), `list_operations` (semantic search via Bedrock Titan v2 embeddings against parsed spec operations cached in memory), and `call_operation` (invoke a specific endpoint). Auth is resolved per-spec — `passthrough_jwt` forwards the inbound Cognito JWT, while `bearer_env` / `api_key_env` / `basic_env` use credentials from environment variables for service-to-service calls. See [docs/openapi-discovery-plan.md](docs/openapi-discovery-plan.md) for the full design and operator guide.
 
 ## Project Structure
 
@@ -64,15 +82,17 @@ chat-agent/
 │   ├── main.py              # FastAPI app, CORS, rate limiting, lifespan, includes AWS Lambda support
 │   ├── config.py            # Pydantic settings from .env
 │   ├── dynamodb.py          # helper function for accessing DynamoDB table resources
-│   ├── models/db.py         # Conversation & message models
+│   ├── models/db.py         # Conversation, Message, SpecSource models
 │   ├── auth/jwt.py          # OAuth2 JWKS validation for AWS Cognito
 │   ├── llm/                 # Pluggable providers: Anthropic, OpenAI, Bedrock, and Custom
-│   ├── tools/               # Tool registry + Calculator + WebSearch stub
-│   ├── routers/             # One router per resource group
+│   ├── tools/               # Tool registry + Calculator + WebSearch + OpenAPI Discovery
+│   ├── openapi/             # OpenAPI spec fetcher, parser, embedder, auth resolvers, registry
+│   ├── routers/             # One router per resource group (incl. /spec-sources admin)
 │   └── middleware/          # SlowAPI rate limiter keyed by user sub
 ├── scripts/
 │   └── create_tables.py     # a Lambda function for generating the DynamoDB schema
-├── tests/                   # 23 async tests (in-memory SQLite, mocked LLM)
+├── tests/                   # 83 async tests (in-memory DynamoDB via moto, mocked LLM and embeddings)
+├── docs/                    # Design docs (e.g. openapi-discovery-plan.md)
 ├── deploy.sh                # a shell script for building the app and distributing it to an AWS Lambda
 ├── Dockerfile
 ├── docker-compose.yml       # app + dynamodb (for running locally)
@@ -153,6 +173,26 @@ curl -s -X PATCH http://localhost:8000/v1/conversations/$CONV_ID/config \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o","provider":"openai","enabled_tools":["calculator"]}'
 
+# Register an OpenAPI spec source (admin)
+curl -s -X POST http://localhost:8000/v1/spec-sources \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "billing",
+    "url": "https://billing.internal/openapi.json",
+    "description": "Invoices, refunds, subscriptions, payment methods.",
+    "auth": {"type": "passthrough_jwt"}
+  }'
+
+# List registered spec sources
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/v1/spec-sources
+
+# Enable openapi_discovery + specs on a conversation
+curl -s -X PATCH http://localhost:8000/v1/conversations/$CONV_ID/config \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled_tools":["openapi_discovery"],"enabled_specs":["billing"]}'
+
 # Send a message (blocking)
 curl -s -X POST http://localhost:8000/v1/conversations/$CONV_ID/messages \
   -H "Authorization: Bearer $TOKEN" \
@@ -215,6 +255,11 @@ All config is via environment variables (or a `.env` file). Copy `.env.example` 
 | `MAX_HISTORY_MESSAGES` | Default context window message limit | `50` |
 | `DEFAULT_SYSTEM_PROMPT` | Fallback system prompt for new conversations | `You are a helpful AI assistant.` |
 | `CORS_ORIGINS` | Comma-separated allowed origins, or `*` | `*` |
+| `DYNAMODB_TABLE_SPEC_SOURCES` | DynamoDB table for OpenAPI spec sources | `chat_spec_sources` |
+| `BEDROCK_EMBEDDING_MODEL` | Bedrock model ID for operation embeddings | `amazon.titan-embed-text-v2:0` |
+| `OPENAPI_SPEC_FETCH_TIMEOUT_SECONDS` | Timeout for fetching upstream OpenAPI specs | `15.0` |
+| `OPENAPI_LIST_OPERATIONS_TOP_K` | Max operations returned by `list_operations` | `20` |
+| `OPENAPI_AUTH_*` (per-spec env vars) | Service-to-service credentials referenced by `bearer_env`/`api_key_env`/`basic_env` auth configs (e.g. `BILLING_API_TOKEN`) | — |
 
 ## Design Notes
 
@@ -223,3 +268,6 @@ All config is via environment variables (or a `.env` file). Copy `.env.example` 
 - **Context truncation**: keeps the last `MAX_HISTORY_MESSAGES` messages per conversation (overridable per-conversation via the config endpoint).
 - **Rate limiting**: keyed on the JWT `sub` claim when authenticated, falls back to client IP.
 - **Streaming**: `?stream=true` on the send-message endpoint returns a Server-Sent Events stream of `{"content": "..."}` chunks, terminated by `data: [DONE]`.
+- **OpenAPI tool discovery (retrieve-then-invoke)**: instead of registering every operation of every spec as a separate tool, the agent exposes a single `openapi_discovery` tool with three actions — `list_specs`, `list_operations`, `call_operation`. Operations are parsed once per spec, embedded with Bedrock Titan v2, and indexed in memory; `list_operations` does cosine-similarity search over those embeddings. This scales to many specs without blowing up the model's tool list. See [docs/openapi-discovery-plan.md](docs/openapi-discovery-plan.md) for design and operator guide.
+- **Auth for downstream API calls**: per-spec auth config — `passthrough_jwt` (default for Cognito-protected internal services; forwards the inbound user JWT), `bearer_env` / `api_key_env` / `basic_env` (service-to-service via environment variables), `static` (non-secret headers), `none`. Tokens are never persisted or logged.
+- **Per-conversation spec scoping**: `enabled_specs` on the conversation gates which specs the discovery tool can see. Spec descriptions are injected into the system prompt so the model knows what services exist without burning a `list_specs` call every turn.

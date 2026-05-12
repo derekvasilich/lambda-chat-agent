@@ -9,6 +9,10 @@ def register_tool(tool: BaseTool):
     _REGISTRY[tool.name] = tool
 
 
+def unregister_tool(name: str) -> None:
+    _REGISTRY.pop(name, None)
+
+
 def get_tool(name: str) -> BaseTool | None:
     return _REGISTRY.get(name)
 
@@ -24,3 +28,34 @@ def get_tools_for_conversation(enabled_tools: List[str]) -> List[BaseTool]:
 # Register built-in tools
 register_tool(CalculatorTool())
 register_tool(WebSearchStubTool())
+
+
+def register_default_openapi_discovery() -> None:
+    from app.dynamodb import get_dynamodb_resource
+    from app.config import settings
+    from app.openapi.auth import CompositeAuthResolver
+    from app.openapi.embeddings import TitanBedrockEmbedder
+    from app.openapi.fetcher import SpecFetcher
+    from app.openapi.registry import SpecRegistry
+    from app.repositories.spec_sources import SpecSourceRepository
+    from app.tools.openapi_discovery import OpenAPIDiscoveryTool
+
+    embedder = TitanBedrockEmbedder()
+    spec_reg = SpecRegistry(fetcher=SpecFetcher(), embedder=embedder)
+    auth_resolver = CompositeAuthResolver()
+
+    async def provider_factory():
+        async with get_dynamodb_resource() as ddb:
+            table = await ddb.Table(settings.DYNAMODB_TABLE_SPEC_SOURCES)
+            return SpecSourceRepository(table)
+
+    tool = OpenAPIDiscoveryTool(
+        spec_source_provider_factory=provider_factory,
+        registry=spec_reg,
+        embedder=embedder,
+        auth_resolver=auth_resolver,
+    )
+    register_tool(tool)
+
+
+register_default_openapi_discovery()

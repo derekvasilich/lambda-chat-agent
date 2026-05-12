@@ -24,6 +24,7 @@ def _item_to_response(item: dict) -> ConversationResponse:
         model=item["model"],
         max_history_messages=int(mhm) if mhm is not None else None,
         enabled_tools=list(item.get("enabled_tools", [])),
+        enabled_specs=list(item.get("enabled_specs", [])),
         created_at=datetime.fromisoformat(item["created_at"]),
         updated_at=datetime.fromisoformat(item["updated_at"]),
         first_message=None,
@@ -83,6 +84,7 @@ class ConversationRepository:
             "provider": data.provider or settings.DEFAULT_LLM_PROVIDER,
             "model": data.model or settings.DEFAULT_MODEL,
             "enabled_tools": [],
+            "enabled_specs": [],
             "created_at": now,
             "updated_at": now,
         }
@@ -114,6 +116,9 @@ class ConversationRepository:
         if data.enabled_tools is not None:
             update_parts.append("enabled_tools = :enabled_tools")
             expr_values[":enabled_tools"] = data.enabled_tools
+        if data.enabled_specs is not None:
+            update_parts.append("enabled_specs = :enabled_specs")
+            expr_values[":enabled_specs"] = data.enabled_specs
 
         try:
             resp = await self.table.update_item(

@@ -35,6 +35,7 @@ class ConversationResponse(BaseModel):
     model: str
     max_history_messages: Optional[int] = None
     enabled_tools: List[str]
+    enabled_specs: List[str] = []
     created_at: datetime
     updated_at: datetime
     first_message: Optional[FirstMessageResponse] = None

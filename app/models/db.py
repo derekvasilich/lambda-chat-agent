@@ -22,6 +22,19 @@ class Conversation(BaseModel):
     model: str = "claude-sonnet-4-6"
     max_history_messages: Optional[int] = None
     enabled_tools: List[str] = Field(default_factory=list)
+    enabled_specs: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class SpecSourceDB(BaseModel):
+    id: str
+    url: str
+    description: str
+    auth: dict[str, Any]
+    cache_etag: Optional[str] = None
+    last_fetched_at: Optional[datetime] = None
+    operation_count: Optional[int] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

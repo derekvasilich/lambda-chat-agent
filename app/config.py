@@ -31,9 +31,14 @@ class Settings(BaseSettings):
 
     DYNAMODB_TABLE_CONVERSATIONS: str = "chat_conversations"
     DYNAMODB_TABLE_MESSAGES: str = "chat_messages"
+    DYNAMODB_TABLE_SPEC_SOURCES: str = "chat_spec_sources"
     DYNAMODB_ENDPOINT_URL: str = ""  # empty = real AWS; "http://localhost:8000" for DynamoDB Local
     AWS_REGION: str = "us-east-1"
     CONVERSATION_TTL_DAYS: int = 0  # 0 = no TTL
+
+    BEDROCK_EMBEDDING_MODEL: str = "amazon.titan-embed-text-v2:0"
+    OPENAPI_SPEC_FETCH_TIMEOUT_SECONDS: float = 15.0
+    OPENAPI_LIST_OPERATIONS_TOP_K: int = 20
 
     @property
     def cors_origins_list(self) -> List[str]:

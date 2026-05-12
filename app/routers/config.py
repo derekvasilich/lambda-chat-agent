@@ -27,6 +27,7 @@ async def get_config(
         model=conv.model,
         max_history_messages=conv.max_history_messages,
         enabled_tools=conv.enabled_tools or [],
+        enabled_specs=conv.enabled_specs or [],
     )
 
 
@@ -55,4 +56,5 @@ async def update_config(
         model=conv.model,
         max_history_messages=conv.max_history_messages,
         enabled_tools=conv.enabled_tools or [],
+        enabled_specs=conv.enabled_specs or [],
     )

@@ -51,6 +51,10 @@ async def get_current_user(
         request: Request,
         token: str = Depends(oauth2_scheme),
     ):
+    # Stash the raw bearer token on request.state so request-scoped consumers
+    # (e.g., OpenAPI passthrough_jwt auth) can forward it. Never logged, never
+    # persisted — dropped at request end with the rest of request.state.
+    request.state.bearer_token = token
     try:
         # API Gateway puts claims here after validation
         aws_event = request.scope.get("aws.event")

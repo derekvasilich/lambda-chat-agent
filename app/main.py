@@ -10,7 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.config import settings
 from app.middleware.rate_limit import limiter
-from app.routers import health, conversations, messages, config, models
+from app.routers import health, conversations, messages, config, models, spec_sources
 
 structlog.configure(
     processors=[
@@ -82,3 +82,4 @@ app.include_router(conversations.router, prefix=PREFIX)
 app.include_router(messages.router, prefix=PREFIX)
 app.include_router(config.router, prefix=PREFIX)
 app.include_router(models.router, prefix=PREFIX)
+app.include_router(spec_sources.router, prefix=PREFIX)

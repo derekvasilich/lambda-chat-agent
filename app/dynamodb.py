@@ -23,3 +23,8 @@ async def get_conversations_table():
 async def get_messages_table():
     async with get_dynamodb_resource() as dynamodb:
         yield await dynamodb.Table(settings.DYNAMODB_TABLE_MESSAGES)
+
+
+async def get_spec_sources_table():
+    async with get_dynamodb_resource() as dynamodb:
+        yield await dynamodb.Table(settings.DYNAMODB_TABLE_SPEC_SOURCES)

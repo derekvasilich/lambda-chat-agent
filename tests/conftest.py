@@ -6,7 +6,11 @@ from httpx import AsyncClient, ASGITransport
 from moto import mock_aws
 
 from app.main import app
-from app.dynamodb import get_conversations_table, get_messages_table
+from app.dynamodb import (
+    get_conversations_table,
+    get_messages_table,
+    get_spec_sources_table,
+)
 from app.auth.jwt import get_current_user
 from app.auth import UserClaims
 
@@ -16,6 +20,7 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
 
 TABLE_CONVERSATIONS = "chat_conversations"
 TABLE_MESSAGES = "chat_messages"
+TABLE_SPEC_SOURCES = "chat_spec_sources"
 
 TEST_USER = UserClaims(sub="test-user-123", email="test@example.com")
 TOKEN = "test-token"
@@ -63,6 +68,9 @@ class AsyncTableWrapper:
 
     async def query(self, **kwargs):
         return self._table.query(**kwargs)
+
+    async def scan(self, **kwargs):
+        return self._table.scan(**kwargs)
 
     async def update_item(self, **kwargs):
         return self._table.update_item(**kwargs)
@@ -114,6 +122,12 @@ def _create_tables(ddb_client):
         ],
         BillingMode="PAY_PER_REQUEST",
     )
+    ddb_client.create_table(
+        TableName=TABLE_SPEC_SOURCES,
+        KeySchema=[{"AttributeName": "id", "KeyType": "HASH"}],
+        AttributeDefinitions=[{"AttributeName": "id", "AttributeType": "S"}],
+        BillingMode="PAY_PER_REQUEST",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -129,13 +143,14 @@ def aws_mock():
         ddb = boto3.resource("dynamodb", region_name="us-east-1")
         conv_table = AsyncTableWrapper(ddb.Table(TABLE_CONVERSATIONS))
         msg_table = AsyncTableWrapper(ddb.Table(TABLE_MESSAGES))
+        spec_table = AsyncTableWrapper(ddb.Table(TABLE_SPEC_SOURCES))
 
-        yield conv_table, msg_table
+        yield conv_table, msg_table, spec_table
 
 
 @pytest_asyncio.fixture
 async def client(aws_mock):
-    conv_table, msg_table = aws_mock
+    conv_table, msg_table, spec_table = aws_mock
 
     async def mock_conv_table():
         yield conv_table
@@ -143,11 +158,15 @@ async def client(aws_mock):
     async def mock_msg_table():
         yield msg_table
 
+    async def mock_spec_table():
+        yield spec_table
+
     def override_auth():
         return TEST_USER
 
     app.dependency_overrides[get_conversations_table] = mock_conv_table
     app.dependency_overrides[get_messages_table] = mock_msg_table
+    app.dependency_overrides[get_spec_sources_table] = mock_spec_table
     app.dependency_overrides[get_current_user] = override_auth
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -160,13 +179,16 @@ async def client(aws_mock):
 async def unauth_client(aws_mock):
     from fastapi import HTTPException
 
-    conv_table, msg_table = aws_mock
+    conv_table, msg_table, spec_table = aws_mock
 
     async def mock_conv_table():
         yield conv_table
 
     async def mock_msg_table():
         yield msg_table
+
+    async def mock_spec_table():
+        yield spec_table
 
     def deny_auth():
         raise HTTPException(status_code=403, detail={
@@ -175,6 +197,7 @@ async def unauth_client(aws_mock):
 
     app.dependency_overrides[get_conversations_table] = mock_conv_table
     app.dependency_overrides[get_messages_table] = mock_msg_table
+    app.dependency_overrides[get_spec_sources_table] = mock_spec_table
     app.dependency_overrides[get_current_user] = deny_auth
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

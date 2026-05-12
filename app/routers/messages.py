@@ -4,13 +4,24 @@ from typing import Optional, AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.dynamodb import get_messages_table, get_dynamodb_resource
+from app.dynamodb import (
+    get_messages_table,
+    get_dynamodb_resource,
+    get_spec_sources_table,
+)
 from app.repositories.conversations import ConversationRepository
 from app.repositories.messages import MessageRepository
+from app.repositories.spec_sources import SpecSourceRepository
 from app.routers.conversations import get_conv_repo, _get_owned_conversation
 from app.schemas.message import SendMessageRequest, MessageResponse, MessageListResponse
 from app.auth import get_current_user, UserClaims
 from app.llm import get_provider, LLMMessage
+from app.openapi.auth import RequestContext
+from app.openapi.discovery_context import (
+    DiscoveryContext,
+    clear_discovery_context,
+    set_discovery_context,
+)
 from app.tools.registry import get_tools_for_conversation, get_tool
 from app.middleware.rate_limit import limiter, rate_limit_string
 from app.config import settings
@@ -22,6 +33,36 @@ router = APIRouter()
 
 async def get_msg_repo(msg_table=Depends(get_messages_table)) -> MessageRepository:
     return MessageRepository(msg_table)
+
+
+async def get_spec_repo(
+    spec_table=Depends(get_spec_sources_table),
+) -> SpecSourceRepository:
+    return SpecSourceRepository(spec_table)
+
+
+async def _build_augmented_system_prompt(
+    base_prompt: Optional[str],
+    enabled_specs: list[str],
+    spec_repo: SpecSourceRepository,
+) -> Optional[str]:
+    if not enabled_specs:
+        return base_prompt
+    descriptions = []
+    for spec_id in enabled_specs:
+        spec = await spec_repo.get(spec_id)
+        if spec is None:
+            continue
+        descriptions.append(f"- {spec.id}: {spec.description}")
+    if not descriptions:
+        return base_prompt
+    spec_block = (
+        "Available API services (use the openapi_discovery tool to explore):\n"
+        + "\n".join(descriptions)
+    )
+    if base_prompt:
+        return f"{base_prompt}\n\n{spec_block}"
+    return spec_block
 
 
 @router.get(
@@ -59,10 +100,19 @@ async def send_message(
     stream: bool = Query(False),
     conv_repo: ConversationRepository = Depends(get_conv_repo),
     msg_repo: MessageRepository = Depends(get_msg_repo),
+    spec_repo: SpecSourceRepository = Depends(get_spec_repo),
     user: UserClaims = Depends(get_current_user),
 ):
     conv = await _get_owned_conversation(conversation_id, user.sub, conv_repo)
     request.state.user = user
+
+    set_discovery_context(DiscoveryContext(
+        request_context=RequestContext(
+            user_sub=user.sub,
+            bearer_token=getattr(request.state, "bearer_token", None),
+        ),
+        enabled_specs=conv.enabled_specs or [],
+    ))
 
     await msg_repo.add(conv.id, "user", content=body.content)
 
@@ -72,6 +122,10 @@ async def send_message(
 
     max_msgs = conv.max_history_messages or settings.MAX_HISTORY_MESSAGES
     llm_messages = await msg_repo.get_history(conv.id, max_msgs)
+
+    augmented_system_prompt = await _build_augmented_system_prompt(
+        conv.system_prompt, conv.enabled_specs or [], spec_repo,
+    )
 
     provider = get_provider(conv.provider)
     tools_list = get_tools_for_conversation(conv.enabled_tools or [])
@@ -95,7 +149,7 @@ async def send_message(
                 async for chunk in provider.stream(
                     messages=llm_messages,
                     model=conv.model,
-                    system_prompt=conv.system_prompt,
+                    system_prompt=augmented_system_prompt,
                     tools=tool_schemas,
                 ):
                     full_content.append(chunk)
@@ -122,7 +176,7 @@ async def send_message(
         llm_resp = await provider.complete(
             messages=llm_messages,
             model=conv.model,
-            system_prompt=conv.system_prompt,
+            system_prompt=augmented_system_prompt,
             tools=tool_schemas,
         )
 

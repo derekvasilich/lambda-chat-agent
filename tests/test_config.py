@@ -48,3 +48,21 @@ async def test_config_not_found(client):
 async def test_config_auth_required(unauth_client):
     resp = await unauth_client.get("/v1/conversations/any-id/config")
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_update_enabled_specs(client, conversation):
+    conv_id = conversation["id"]
+    resp = await client.patch(f"/v1/conversations/{conv_id}/config", json={
+        "enabled_specs": ["billing", "identity"],
+    })
+    assert resp.status_code == 200
+    assert resp.json()["enabled_specs"] == ["billing", "identity"]
+
+
+@pytest.mark.asyncio
+async def test_get_config_includes_enabled_specs(client, conversation):
+    conv_id = conversation["id"]
+    resp = await client.get(f"/v1/conversations/{conv_id}/config")
+    assert resp.status_code == 200
+    assert "enabled_specs" in resp.json()
