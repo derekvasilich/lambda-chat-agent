@@ -21,11 +21,11 @@ class SpecCacheEntry:
 
 
 class SpecRegistry:
-    def __init__(self, fetcher: SpecFetcher, embedder: Embedder):
+    def __init__(self, fetcher: SpecFetcher, embedder: Embedder, index: EmbeddingIndex | None = None):
         self._fetcher = fetcher
         self._embedder = embedder
         self._entries: Dict[str, SpecCacheEntry] = {}
-        self._index = EmbeddingIndex()
+        self._index = index or EmbeddingIndex()
         self._locks: Dict[str, asyncio.Lock] = {}
 
     @property
@@ -38,9 +38,9 @@ class SpecRegistry:
     def list_entries(self) -> List[SpecCacheEntry]:
         return list(self._entries.values())
 
-    def remove(self, spec_id: str) -> None:
+    async def remove(self, spec_id: str) -> None:
         self._entries.pop(spec_id, None)
-        self._index.remove_spec(spec_id)
+        await self._index.remove_spec(spec_id)
 
     async def ensure_loaded(self, metadata: SpecSourceResponse) -> SpecCacheEntry:
         lock = self._locks.setdefault(metadata.id, asyncio.Lock())
@@ -55,7 +55,7 @@ class SpecRegistry:
     async def force_reload(self, metadata: SpecSourceResponse) -> SpecCacheEntry:
         lock = self._locks.setdefault(metadata.id, asyncio.Lock())
         async with lock:
-            self._index.remove_spec(metadata.id)
+            await self._index.remove_spec(metadata.id)
             self._entries.pop(metadata.id, None)
             return await self._load(metadata)
 

@@ -2,7 +2,6 @@ import pytest
 
 from app.openapi.parser import parse_spec
 
-
 PETSTORE = {
     "openapi": "3.0.0",
     "info": {"title": "Petstore", "version": "1.0"},

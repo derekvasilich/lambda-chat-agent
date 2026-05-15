@@ -1,5 +1,8 @@
 import pytest
 
+from app.tools.registry import get_tool
+from app.openapi.registry import SpecCacheEntry
+
 
 @pytest.mark.asyncio
 async def test_create_spec_source_passthrough_jwt(client):
@@ -164,6 +167,32 @@ async def test_delete_spec_source(client):
 async def test_delete_nonexistent_spec_source_returns_404(client):
     resp = await client.delete("/v1/spec-sources/nope")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_refresh_spec_source_triggers_reload(client, monkeypatch):
+    body = {
+        "id": "billing",
+        "url": "https://billing.internal/openapi.json",
+        "description": "Invoices.",
+        "auth": {"type": "none"},
+    }
+    resp = await client.post("/v1/spec-sources", json=body)
+    assert resp.status_code == 201
+
+    tool = get_tool("openapi_discovery")
+    assert tool is not None
+
+    async def fake_force_reload(spec):
+        return SpecCacheEntry(metadata=spec, operations=["dummy"], cache_etag=None)
+
+    monkeypatch.setattr(tool.registry, "force_reload", fake_force_reload)
+
+    refresh_resp = await client.post("/v1/spec-sources/billing/refresh")
+    assert refresh_resp.status_code == 200
+    assert refresh_resp.json()["spec_id"] == "billing"
+    assert refresh_resp.json()["status"] == "refreshed"
+    assert refresh_resp.json()["operation_count"] == 1
 
 
 @pytest.mark.asyncio

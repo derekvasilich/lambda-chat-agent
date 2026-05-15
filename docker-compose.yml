@@ -12,6 +12,22 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg15
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: chat_agent
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chat_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
   init:
     build: .
     depends_on:
@@ -26,6 +42,17 @@ services:
       DYNAMODB_TABLE_MESSAGES: ${DYNAMODB_TABLE_MESSAGES:-chat_messages}
     command: python scripts/create_tables.py
 
+  init-postgres:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/chat_agent}
+      PGVECTOR_EMBEDDINGS_TABLE: ${PGVECTOR_EMBEDDINGS_TABLE:-openapi_operation_embeddings}
+      OPENAPI_EMBEDDING_DIM: ${OPENAPI_EMBEDDING_DIM:-1536}
+    command: python scripts/init_postgres.py
+
   app:
     build: .
     ports:
@@ -33,7 +60,10 @@ services:
     depends_on:
       init:
         condition: service_completed_successfully
+      init-postgres:
+        condition: service_completed_successfully
     environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/chat_agent}
       DYNAMODB_ENDPOINT_URL: http://dynamodb-local:8000
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-local}
@@ -51,3 +81,6 @@ services:
       DEFAULT_SYSTEM_PROMPT: ${DEFAULT_SYSTEM_PROMPT:-You are a helpful AI assistant.}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     command: uvicorn app.main:app --host 0.0.0.0 --port 8080
+
+volumes:
+  pgdata:

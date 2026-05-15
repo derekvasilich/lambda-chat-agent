@@ -3,6 +3,7 @@ import time
 from fastapi import APIRouter, Depends
 import httpx
 from app.dynamodb import get_conversations_table
+from app.postgres import get_postgres_pool
 from app.schemas.health import HealthResponse
 from app.llm.registry import list_providers
 from app.config import settings
@@ -18,12 +19,23 @@ _start_time = time.time()
     description="Returns server status, DB connectivity, LLM reachability, app version, and uptime.",
     tags=["Health"],
 )
-async def health(conv_table=Depends(get_conversations_table)):
+async def health(conv_table=Depends(get_conversations_table), postgres_pool=Depends(get_postgres_pool)):
     try:
         await conv_table.load()
         db_status = "ok"
     except Exception as e:
         db_status = f"error: {e}"
+
+    try:
+        conn = await postgres_pool.acquire()
+        try:
+            # Check if spec_sources table exists and is accessible
+            await conn.fetchval("SELECT COUNT(*) FROM spec_sources")
+            postgres_status = "ok"
+        finally:
+            await postgres_pool.release(conn)
+    except Exception as e:
+        postgres_status = f"error: {e}"
 
     try:
         async with httpx.AsyncClient() as client:
@@ -39,10 +51,11 @@ async def health(conv_table=Depends(get_conversations_table)):
         llm_status[name] = await provider.health_check()
 
     return HealthResponse(
-        status="ok" if db_status == "ok" else "degraded",
+        status="ok" if db_status == "ok" and postgres_status == "ok" else "degraded",
         version=settings.APP_VERSION,
         uptime_seconds=round(time.time() - _start_time, 2),
         database=db_status,
+        postgres=postgres_status,
         authentication=auth_status,
         llm_providers=llm_status,
     )

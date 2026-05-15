@@ -1,21 +1,24 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user, UserClaims
-from app.dynamodb import get_spec_sources_table
-from app.repositories.spec_sources import SpecSourceRepository
+from app.postgres import get_spec_source_repo
+from app.repositories.spec_sources_pg import SpecSourceRepositoryPG
 from app.schemas.spec_source import (
     SpecSourceCreate,
     SpecSourceListResponse,
     SpecSourceResponse,
 )
+from app.tools.registry import get_tool
 
 router = APIRouter()
 
 
 async def get_spec_repo(
-    table=Depends(get_spec_sources_table),
-) -> SpecSourceRepository:
-    return SpecSourceRepository(table)
+    repo=Depends(get_spec_source_repo),
+) -> SpecSourceRepositoryPG:
+    return repo
 
 
 # TODO(admin): writes (POST, DELETE, refresh) should be gated on the inbound
@@ -30,7 +33,7 @@ async def get_spec_repo(
     tags=["SpecSources"],
 )
 async def list_spec_sources(
-    repo: SpecSourceRepository = Depends(get_spec_repo),
+    repo: SpecSourceRepositoryPG = Depends(get_spec_repo),
     _user: UserClaims = Depends(get_current_user),
 ):
     items = await repo.list()
@@ -45,7 +48,7 @@ async def list_spec_sources(
 )
 async def get_spec_source(
     spec_id: str,
-    repo: SpecSourceRepository = Depends(get_spec_repo),
+    repo: SpecSourceRepositoryPG = Depends(get_spec_repo),
     _user: UserClaims = Depends(get_current_user),
 ):
     spec = await repo.get(spec_id)
@@ -66,7 +69,7 @@ async def get_spec_source(
 )
 async def create_spec_source(
     body: SpecSourceCreate,
-    repo: SpecSourceRepository = Depends(get_spec_repo),
+    repo: SpecSourceRepositoryPG = Depends(get_spec_repo),
     _user: UserClaims = Depends(get_current_user),
 ):
     try:
@@ -78,6 +81,39 @@ async def create_spec_source(
         )
 
 
+@router.post(
+    "/spec-sources/{spec_id}/refresh",
+    response_model=dict[str, Any],
+    summary="Refresh an OpenAPI spec source and re-index its operations",
+    tags=["SpecSources"],
+)
+async def refresh_spec_source(
+    spec_id: str,
+    repo: SpecSourceRepositoryPG = Depends(get_spec_repo),
+    _user: UserClaims = Depends(get_current_user),
+):
+    spec = await repo.get(spec_id)
+    if spec is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "not_found", "message": "Spec source not found", "details": {}}},
+        )
+
+    tool = get_tool("openapi_discovery")
+    if tool is None or not hasattr(tool, "registry"):
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"code": "server_error", "message": "OpenAPI discovery tool is unavailable", "details": {}}},
+        )
+
+    entry = await tool.registry.force_reload(spec)
+    return {
+        "spec_id": spec_id,
+        "status": "refreshed",
+        "operation_count": len(entry.operations),
+    }
+
+
 @router.delete(
     "/spec-sources/{spec_id}",
     status_code=204,
@@ -86,7 +122,7 @@ async def create_spec_source(
 )
 async def delete_spec_source(
     spec_id: str,
-    repo: SpecSourceRepository = Depends(get_spec_repo),
+    repo: SpecSourceRepositoryPG = Depends(get_spec_repo),
     _user: UserClaims = Depends(get_current_user),
 ):
     deleted = await repo.delete(spec_id)
@@ -95,3 +131,4 @@ async def delete_spec_source(
             status_code=404,
             detail={"error": {"code": "not_found", "message": "Spec source not found", "details": {}}},
         )
+    return None

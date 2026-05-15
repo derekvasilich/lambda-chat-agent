@@ -4,14 +4,11 @@ from typing import Optional, AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.dynamodb import (
-    get_messages_table,
-    get_dynamodb_resource,
-    get_spec_sources_table,
-)
+from app.dynamodb import get_messages_table
+from app.postgres import get_spec_source_repo
 from app.repositories.conversations import ConversationRepository
 from app.repositories.messages import MessageRepository
-from app.repositories.spec_sources import SpecSourceRepository
+from app.repositories.spec_sources_pg import SpecSourceRepositoryPG
 from app.routers.conversations import get_conv_repo, _get_owned_conversation
 from app.schemas.message import SendMessageRequest, MessageResponse, MessageListResponse
 from app.auth import get_current_user, UserClaims
@@ -36,15 +33,15 @@ async def get_msg_repo(msg_table=Depends(get_messages_table)) -> MessageReposito
 
 
 async def get_spec_repo(
-    spec_table=Depends(get_spec_sources_table),
-) -> SpecSourceRepository:
-    return SpecSourceRepository(spec_table)
+    repo=Depends(get_spec_source_repo),
+) -> SpecSourceRepositoryPG:
+    return repo
 
 
 async def _build_augmented_system_prompt(
     base_prompt: Optional[str],
     enabled_specs: list[str],
-    spec_repo: SpecSourceRepository,
+    spec_repo: SpecSourceRepositoryPG,
 ) -> Optional[str]:
     if not enabled_specs:
         return base_prompt
@@ -100,7 +97,7 @@ async def send_message(
     stream: bool = Query(False),
     conv_repo: ConversationRepository = Depends(get_conv_repo),
     msg_repo: MessageRepository = Depends(get_msg_repo),
-    spec_repo: SpecSourceRepository = Depends(get_spec_repo),
+    spec_repo: SpecSourceRepositoryPG = Depends(get_spec_repo),
     user: UserClaims = Depends(get_current_user),
 ):
     conv = await _get_owned_conversation(conversation_id, user.sub, conv_repo)

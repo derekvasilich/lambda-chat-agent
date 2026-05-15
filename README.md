@@ -23,7 +23,8 @@ flowchart LR
     end
 
     subgraph Data["Data"]
-        DDB[(DynamoDB<br/>conversations · messages · spec_sources)]
+        DDB[(DynamoDB<br/>conversations · messages)]
+        PG[(Postgres<br/>spec_sources · operation embeddings)]
     end
 
     subgraph LLMs["LLM Providers"]
@@ -57,6 +58,7 @@ flowchart LR
     APIGW --> Lambda
     Lambda -->|Verify JWT via JWKS| Cognito
     Lambda <--> DDB
+    Lambda <--> PG
     Lambda --> Bedrock
     Lambda --> Anthropic
     Lambda --> OpenAI
@@ -64,13 +66,14 @@ flowchart LR
     Lambda --> Calc
     Lambda --> Web
     Lambda --> OD
+    OD --> PG
     OD --> Titan
     OD -->|forwarded JWT or service creds| Svc1
     OD -->|forwarded JWT or service creds| Svc2
     OD -->|forwarded JWT or service creds| SvcN
 ```
 
-**Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway forwards the request to Lambda, where the FastAPI app validates the JWT directly against Cognito's JWKS endpoint and verifies the expected claims — see [app/auth/jwt.py](app/auth/jwt.py). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
+**Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway forwards the request to Lambda, where the FastAPI app validates the JWT directly against Cognito's JWKS endpoint and verifies the expected claims — see [app/auth/jwt.py](app/auth/jwt.py). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, stores OpenAPI spec source metadata and pgvector embeddings in PostgreSQL, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
 
 **OpenAPI tool discovery.** When `enabled_specs` is set on a conversation, the chat-agent injects a list of available API services into the system prompt and exposes the `openapi_discovery` tool. The model uses three actions on that tool: `list_specs` (what services exist), `list_operations` (semantic search via Bedrock Titan v2 embeddings against parsed spec operations cached in memory), and `call_operation` (invoke a specific endpoint). Auth is resolved per-spec — `passthrough_jwt` forwards the inbound Cognito JWT, while `bearer_env` / `api_key_env` / `basic_env` use credentials from environment variables for service-to-service calls. See [docs/openapi-discovery-plan.md](docs/openapi-discovery-plan.md) for the full design and operator guide, and [docs/openapi-test-specs.md](docs/openapi-test-specs.md) for free public specs (Petstore, Open-Meteo, Nager.Date, GitHub) you can register to test end-to-end.
 
@@ -81,7 +84,7 @@ chat-agent/
 ├── app/
 │   ├── main.py              # FastAPI app, CORS, rate limiting, lifespan, includes AWS Lambda support
 │   ├── config.py            # Pydantic settings from .env
-│   ├── dynamodb.py          # helper function for accessing DynamoDB table resources
+│   ├── dynamodb.py          # helper functions for accessing DynamoDB conversations/messages
 │   ├── models/db.py         # Conversation, Message, SpecSource models
 │   ├── auth/jwt.py          # OAuth2 JWKS validation for AWS Cognito
 │   ├── llm/                 # Pluggable providers: Anthropic, OpenAI, Bedrock, and Custom
@@ -90,12 +93,13 @@ chat-agent/
 │   ├── routers/             # One router per resource group (incl. /spec-sources admin)
 │   └── middleware/          # SlowAPI rate limiter keyed by user sub
 ├── scripts/
-│   └── create_tables.py     # a Lambda function for generating the DynamoDB schema
+│   ├── create_tables.py     # a Lambda function for generating the DynamoDB schema
+│   └── init_postgres.py     # schema setup for Postgres spec sources and pgvector embeddings
 ├── tests/                   # 83 async tests (in-memory DynamoDB via moto, mocked LLM and embeddings)
 ├── docs/                    # Design docs (e.g. openapi-discovery-plan.md)
 ├── deploy.sh                # a shell script for building the app and distributing it to an AWS Lambda
 ├── Dockerfile
-├── docker-compose.yml       # app + dynamodb (for running locally)
+├── docker-compose.yml       # app + dynamodb + postgres (for running locally)
 ├── dynamoDB.md              
 ├── migrate.py               # AWS Lambda function to migrate RDS database
 ├── pyproject.toml           # main project dependencies for `uv` package manager
@@ -229,7 +233,7 @@ cp .env.example .env   # set ANTHROPIC_API_KEY and/or OPENAI_API_KEY
 docker compose up --build
 ```
 
-The app starts on [http://localhost:8000](http://localhost:8000). Migrations run automatically on startup. PostgreSQL data is persisted in a named volume (`pgdata`).
+The app starts on [http://localhost:8000](http://localhost:8000). This starts the app, DynamoDB Local, and PostgreSQL together. PostgreSQL data is persisted in a named volume (`pgdata`).
 
 To stop and remove volumes:
 
@@ -255,7 +259,7 @@ All config is via environment variables (or a `.env` file). Copy `.env.example` 
 | `MAX_HISTORY_MESSAGES` | Default context window message limit | `50` |
 | `DEFAULT_SYSTEM_PROMPT` | Fallback system prompt for new conversations | `You are a helpful AI assistant.` |
 | `CORS_ORIGINS` | Comma-separated allowed origins, or `*` | `*` |
-| `DYNAMODB_TABLE_SPEC_SOURCES` | DynamoDB table for OpenAPI spec sources | `chat_spec_sources` |
+| `DYNAMODB_TABLE_SPEC_SOURCES` | DynamoDB table name for legacy OpenAPI spec sources; current spec metadata is stored in Postgres | `chat_spec_sources` |
 | `BEDROCK_EMBEDDING_MODEL` | Bedrock model ID for operation embeddings | `amazon.titan-embed-text-v2:0` |
 | `OPENAPI_SPEC_FETCH_TIMEOUT_SECONDS` | Timeout for fetching upstream OpenAPI specs | `15.0` |
 | `OPENAPI_LIST_OPERATIONS_TOP_K` | Max operations returned by `list_operations` | `20` |

@@ -7,5 +7,6 @@ class HealthResponse(BaseModel):
     version: str
     uptime_seconds: float
     database: str
+    postgres: str
     authentication: str
     llm_providers: Dict[str, str]

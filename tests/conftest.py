@@ -9,8 +9,10 @@ from app.main import app
 from app.dynamodb import (
     get_conversations_table,
     get_messages_table,
-    get_spec_sources_table,
 )
+from app.postgres import get_spec_source_repo, get_postgres_pool
+from app.schemas.spec_source import SpecSourceCreate, SpecSourceResponse
+from app.models.db import utcnow
 from app.auth.jwt import get_current_user
 from app.auth import UserClaims
 
@@ -83,6 +85,59 @@ class AsyncTableWrapper:
 
     def batch_writer(self):
         return _AsyncBatchWriter(self._table)
+
+
+class InMemorySpecSourceRepo:
+    def __init__(self):
+        self._items: dict[str, SpecSourceResponse] = {}
+
+    async def get(self, id: str) -> SpecSourceResponse | None:
+        return self._items.get(id)
+
+    async def list(self) -> list[SpecSourceResponse]:
+        return list(self._items.values())
+
+    async def create(self, data: SpecSourceCreate) -> SpecSourceResponse:
+        if data.id in self._items:
+            raise ValueError(f"Spec source '{data.id}' already exists")
+        now = utcnow()
+        item = SpecSourceResponse(
+            id=data.id,
+            url=data.url,
+            description=data.description,
+            auth=data.auth,
+            cache_etag=None,
+            last_fetched_at=None,
+            operation_count=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self._items[data.id] = item
+        return item
+
+    async def update_cache_metadata(
+        self,
+        id: str,
+        cache_etag: str | None,
+        operation_count: int,
+    ) -> SpecSourceResponse | None:
+        item = self._items.get(id)
+        if item is None:
+            return None
+        updated = item.model_copy(update={
+            "cache_etag": cache_etag,
+            "last_fetched_at": utcnow(),
+            "operation_count": operation_count,
+            "updated_at": utcnow(),
+        })
+        self._items[id] = updated
+        return updated
+
+    async def delete(self, id: str) -> bool:
+        if id not in self._items:
+            return False
+        del self._items[id]
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -164,9 +219,29 @@ async def client(aws_mock):
     def override_auth():
         return TEST_USER
 
+    spec_repo = InMemorySpecSourceRepo()
+
+    async def mock_spec_source_repo():
+        yield spec_repo
+
+    # Mock postgres pool
+    class MockConnection:
+        async def fetchval(self, query):
+            return 0  # Return 0 for COUNT(*) queries
+
+    class MockPool:
+        async def acquire(self):
+            return MockConnection()
+        async def release(self, conn):
+            pass
+
+    async def mock_postgres_pool():
+        yield MockPool()
+
     app.dependency_overrides[get_conversations_table] = mock_conv_table
     app.dependency_overrides[get_messages_table] = mock_msg_table
-    app.dependency_overrides[get_spec_sources_table] = mock_spec_table
+    app.dependency_overrides[get_spec_source_repo] = mock_spec_source_repo
+    app.dependency_overrides[get_postgres_pool] = mock_postgres_pool
     app.dependency_overrides[get_current_user] = override_auth
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -195,9 +270,29 @@ async def unauth_client(aws_mock):
             "error": {"code": "unauthorized", "message": "Not authenticated", "details": {}}
         })
 
+    spec_repo = InMemorySpecSourceRepo()
+
+    async def mock_spec_source_repo():
+        yield spec_repo
+
+    # Mock postgres pool
+    class MockConnection:
+        async def fetchval(self, query):
+            return 0  # Return 0 for COUNT(*) queries
+
+    class MockPool:
+        async def acquire(self):
+            return MockConnection()
+        async def release(self, conn):
+            pass
+
+    async def mock_postgres_pool():
+        yield MockPool()
+
     app.dependency_overrides[get_conversations_table] = mock_conv_table
     app.dependency_overrides[get_messages_table] = mock_msg_table
-    app.dependency_overrides[get_spec_sources_table] = mock_spec_table
+    app.dependency_overrides[get_spec_source_repo] = mock_spec_source_repo
+    app.dependency_overrides[get_postgres_pool] = mock_postgres_pool
     app.dependency_overrides[get_current_user] = deny_auth
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:

@@ -26,45 +26,49 @@ def _op(spec_id: str, op_id: str, text_keywords: str) -> Operation:
     )
 
 
-def test_cosine_ordering():
+@pytest.mark.asyncio
+async def test_cosine_ordering():
     index = EmbeddingIndex()
-    index.add("a", "x", [1.0, 0.0])
-    index.add("a", "y", [0.0, 1.0])
-    index.add("a", "z", [0.7, 0.7])
+    await index.add("a", "x", [1.0, 0.0])
+    await index.add("a", "y", [0.0, 1.0])
+    await index.add("a", "z", [0.7, 0.7])
 
-    results = index.search([1.0, 0.0], spec_ids=None, top_k=3)
+    results = await index.search([1.0, 0.0], spec_ids=None, top_k=3)
     assert results[0][1] == "x"
     assert results[1][1] == "z"
     assert results[2][1] == "y"
 
 
-def test_search_filters_by_spec_ids():
+@pytest.mark.asyncio
+async def test_search_filters_by_spec_ids():
     index = EmbeddingIndex()
-    index.add("a", "x", [1.0, 0.0])
-    index.add("b", "x", [1.0, 0.0])
+    await index.add("a", "x", [1.0, 0.0])
+    await index.add("b", "x", [1.0, 0.0])
 
-    results = index.search([1.0, 0.0], spec_ids=["a"], top_k=10)
+    results = await index.search([1.0, 0.0], spec_ids=["a"], top_k=10)
     assert len(results) == 1
     assert results[0][0] == "a"
 
 
-def test_top_k_limits_results():
+@pytest.mark.asyncio
+async def test_top_k_limits_results():
     index = EmbeddingIndex()
     for i in range(50):
-        index.add("a", f"op{i}", [float(i), 1.0])
+        await index.add("a", f"op{i}", [float(i), 1.0])
 
-    results = index.search([1.0, 1.0], spec_ids=None, top_k=5)
+    results = await index.search([1.0, 1.0], spec_ids=None, top_k=5)
     assert len(results) == 5
 
 
-def test_remove_spec_drops_vectors():
+@pytest.mark.asyncio
+async def test_remove_spec_drops_vectors():
     index = EmbeddingIndex()
-    index.add("a", "x", [1.0])
-    index.add("b", "y", [1.0])
+    await index.add("a", "x", [1.0])
+    await index.add("b", "y", [1.0])
 
-    index.remove_spec("a")
-    assert index.get("a", "x") is None
-    assert index.get("b", "y") == [1.0]
+    await index.remove_spec("a")
+    assert await index.get("a", "x") is None
+    assert await index.get("b", "y") == [1.0]
 
 
 @pytest.mark.asyncio
@@ -78,8 +82,8 @@ async def test_index_operations_populates_index():
     index = EmbeddingIndex()
 
     await index_operations(embedder, index, ops)
-    assert index.get("billing", "listInvoices") == [1.0, 0.0]
-    assert index.get("billing", "createRefund") == [0.0, 1.0]
+    assert await index.get("billing", "listInvoices") == [1.0, 0.0]
+    assert await index.get("billing", "createRefund") == [0.0, 1.0]
 
 
 @pytest.mark.asyncio
@@ -90,9 +94,10 @@ async def test_index_operations_noop_on_empty():
     assert embedder.calls == []
 
 
-def test_mismatched_dims_returns_zero_similarity():
+@pytest.mark.asyncio
+async def test_mismatched_dims_returns_zero_similarity():
     index = EmbeddingIndex()
-    index.add("a", "x", [1.0, 0.0])
+    await index.add("a", "x", [1.0, 0.0])
     # Query with wrong dim
-    results = index.search([1.0, 0.0, 0.0], spec_ids=None, top_k=5)
+    results = await index.search([1.0, 0.0, 0.0], spec_ids=None, top_k=5)
     assert results[0][2] == 0.0

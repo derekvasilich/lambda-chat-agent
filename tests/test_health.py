@@ -12,6 +12,7 @@ async def test_health_ok(client):
     assert "uptime_seconds" in data
     assert "version" in data
     assert "database" in data
+    assert "postgres" in data
 
 
 @pytest.mark.asyncio

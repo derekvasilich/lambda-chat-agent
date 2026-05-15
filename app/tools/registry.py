@@ -31,23 +31,27 @@ register_tool(WebSearchStubTool())
 
 
 def register_default_openapi_discovery() -> None:
-    from app.dynamodb import get_dynamodb_resource
     from app.config import settings
     from app.openapi.auth import CompositeAuthResolver
     from app.openapi.embeddings import TitanBedrockEmbedder
     from app.openapi.fetcher import SpecFetcher
+    from app.openapi.pgvector import PgvectorEmbeddingIndex
     from app.openapi.registry import SpecRegistry
-    from app.repositories.spec_sources import SpecSourceRepository
+    from app.postgres import get_postgres_pool
+    from app.repositories.spec_sources_pg import SpecSourceRepositoryPG
     from app.tools.openapi_discovery import OpenAPIDiscoveryTool
 
     embedder = TitanBedrockEmbedder()
-    spec_reg = SpecRegistry(fetcher=SpecFetcher(), embedder=embedder)
+    index = PgvectorEmbeddingIndex(
+        pool_factory=get_postgres_pool,
+        table_name=settings.PGVECTOR_EMBEDDINGS_TABLE,
+    )
+    spec_reg = SpecRegistry(fetcher=SpecFetcher(), embedder=embedder, index=index)
     auth_resolver = CompositeAuthResolver()
 
     async def provider_factory():
-        async with get_dynamodb_resource() as ddb:
-            table = await ddb.Table(settings.DYNAMODB_TABLE_SPEC_SOURCES)
-            return SpecSourceRepository(table)
+        pool = await get_postgres_pool()
+        return SpecSourceRepositoryPG(pool)
 
     tool = OpenAPIDiscoveryTool(
         spec_source_provider_factory=provider_factory,

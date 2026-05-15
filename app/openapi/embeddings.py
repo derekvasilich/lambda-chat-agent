@@ -41,18 +41,18 @@ class EmbeddingIndex:
     def __init__(self):
         self._vectors: dict[Tuple[str, str], List[float]] = {}
 
-    def add(self, spec_id: str, op_id: str, vector: List[float]) -> None:
+    async def add(self, spec_id: str, op_id: str, vector: List[float]) -> None:
         self._vectors[(spec_id, op_id)] = vector
 
-    def remove_spec(self, spec_id: str) -> None:
+    async def remove_spec(self, spec_id: str) -> None:
         keys = [k for k in self._vectors if k[0] == spec_id]
         for k in keys:
             del self._vectors[k]
 
-    def get(self, spec_id: str, op_id: str) -> List[float] | None:
+    async def get(self, spec_id: str, op_id: str) -> List[float] | None:
         return self._vectors.get((spec_id, op_id))
 
-    def search(
+    async def search(
         self,
         query_vector: List[float],
         spec_ids: List[str] | None,
@@ -93,4 +93,4 @@ async def index_operations(
     texts = [op.embedding_text() for op in operations]
     vectors = await embedder.embed(texts)
     for op, vec in zip(operations, vectors):
-        index.add(op.spec_id, op.op_id, vec)
+        await index.add(op.spec_id, op.op_id, vec)

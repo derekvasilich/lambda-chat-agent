@@ -69,6 +69,7 @@ class OpenAPIDiscoveryTool(BaseTool):
     ):
         self._provider_factory = spec_source_provider_factory
         self._registry = registry
+        self.registry = registry
         self._embedder = embedder
         self._auth_resolver = auth_resolver
         self._http_client_factory = http_client_factory or _default_http_client
@@ -131,7 +132,7 @@ class OpenAPIDiscoveryTool(BaseTool):
             return json.dumps({"matches": slim})
 
         query_vec = (await self._embedder.embed([query]))[0]
-        results = self._registry.index.search(
+        results = await self._registry.index.search(
             query_vec, spec_ids=scope, top_k=settings.OPENAPI_LIST_OPERATIONS_TOP_K
         )
         ops_by_key = {(op.spec_id, op.op_id): op for op in self._gather_operations(scope)}
