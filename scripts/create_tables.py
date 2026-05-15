@@ -23,7 +23,6 @@ ENDPOINT_URL = os.getenv("DYNAMODB_ENDPOINT_URL", "")
 REGION = os.getenv("AWS_REGION", "us-east-1")
 TABLE_CONVERSATIONS = os.getenv("DYNAMODB_TABLE_CONVERSATIONS", "chat_conversations")
 TABLE_MESSAGES = os.getenv("DYNAMODB_TABLE_MESSAGES", "chat_messages")
-TABLE_SPEC_SOURCES = os.getenv("DYNAMODB_TABLE_SPEC_SOURCES", "chat_spec_sources")
 
 TABLE_DEFINITIONS = [
     {
@@ -57,16 +56,6 @@ TABLE_DEFINITIONS = [
         "AttributeDefinitions": [
             {"AttributeName": "conversation_id", "AttributeType": "S"},
             {"AttributeName": "sort_key", "AttributeType": "S"},
-        ],
-        "BillingMode": "PAY_PER_REQUEST",
-    },
-    {
-        "TableName": TABLE_SPEC_SOURCES,
-        "KeySchema": [
-            {"AttributeName": "id", "KeyType": "HASH"},
-        ],
-        "AttributeDefinitions": [
-            {"AttributeName": "id", "AttributeType": "S"},
         ],
         "BillingMode": "PAY_PER_REQUEST",
     },

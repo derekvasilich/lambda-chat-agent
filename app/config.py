@@ -31,7 +31,6 @@ class Settings(BaseSettings):
 
     DYNAMODB_TABLE_CONVERSATIONS: str = "chat_conversations"
     DYNAMODB_TABLE_MESSAGES: str = "chat_messages"
-    DYNAMODB_TABLE_SPEC_SOURCES: str = "chat_spec_sources"
     DYNAMODB_ENDPOINT_URL: str = ""  # empty = real AWS; "http://localhost:8000" for DynamoDB Local
     AWS_REGION: str = "us-east-1"
     DATABASE_URL: str = ""
