@@ -123,7 +123,7 @@ chat-agent/
 ├── scripts/
 │   ├── create_tables.py     <-- a Lambda function for generating the DynamoDB schema
 │   └── init_postgres.py     <-- schema setup for Postgres spec sources and pgvector embeddings
-├── tests/                   <-- 83 async tests (in-memory DynamoDB via moto, mocked LLM and embeddings)
+├── tests/                   <-- 89 async tests (in-memory DynamoDB via moto, mocked LLM and embeddings)
 ├── docs/                    <-- Design docs (e.g. openapi-discovery-plan.md)
 ├── deploy.sh                <-- a shell script for building the app and distributing it to an AWS Lambda
 ├── docker-compose.yml       <-- app + dynamodb + postgres (for running locally)
