@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Application Layer: Lambda Agent, Bedrock Guardrails, CloudFront UI'
+
+Parameters:
+  VpcId:
+    Type: String
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  LambdaSecurityGroupId:
+    Type: String
+  UserPoolId:
+    Type: String
+  UserPoolClientId:
+    Type: String
+  DynamoTableName:
+    Type: String
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    VpcConfig:
+      SecurityGroupIds: [!Ref LambdaSecurityGroupId]
+      SubnetIds: !Ref PrivateSubnetIds
+
+Resources:
+  # --- AMAZON BEDROCK SECURITY GUARDRAIL ---
+  AgentGuardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: AgentSafetyGuardrail
+      Description: Blocks/didacts harmful input/output strings and PII
+      BlockedInputMessaging: "I cannot assist with requests containing restricted content."
+      BlockedOutputsMessaging: "The generated response was withheld due to safety policies."
+      ContentPolicyConfig:
+        FiltersConfig:
+          - Type: PROMPT_ATTACK
+            InputStrength: HIGH
+            OutputStrength: HIGH
+          - Type: SEXUAL
+            InputStrength: HIGH
+            OutputStrength: HIGH
+          - Type: HATE
+            InputStrength: HIGH
+            OutputStrength: HIGH
+      SensitiveInformationPolicyConfig:
+        PiiEntitiesConfig:
+          - Type: EMAIL
+            Action: ANONYMIZE
+          - Type: PHONE
+            Action: ANONYMIZE
+          - Type: CREDIT_DEBIT_CARD_NUMBER
+            Action: ANONYMIZE
+          - Type: CA_SOCIAL_INSURANCE_NUMBER
+            Action: ANONYMIZE
+
+  AgentGuardrailVersion:
+    Type: AWS::Bedrock::GuardrailVersion
+    Properties:
+      GuardrailIdentifier: !Ref AgentGuardrail
+      Description: "V1 of safety guardrail"
+
+  # --- SERVERLESS API GATEWAY (WITH COGNITO AUTH) ---
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !Sub arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+
+  # --- COMPUTE LAYER (AI AGENT LAMBDA) ---
+  AgentLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/agent/
+      Handler: index.handler
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref DynamoTableName
+          EMBEDDING_MODEL_ID: amazon.titan-embed-text-v2:0 # Modern low-latency variant
+          GUARDRAIL_ID: !Ref AgentGuardrail
+          GUARDRAIL_VERSION: !GetAtt AgentGuardrailVersion.Version
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoTableName
+        - Statement:
+            - Sid: BedrockInferenceAccess
+              Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+                - bedrock:ApplyGuardrail
+              Resource:
+                - "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
+                - !GetAtt AgentGuardrail.GuardrailArn
+      Events:
+        ChatApi:
+          Type: Api
+          Properties:
+            Path: /chat
+            Method: post
+            RestApiId: !Ref ApiGateway
+
+  # --- FRONTEND HOSTING LAYER (S3 + CLOUDFRONT OAC) ---
+  UIHostingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "agent-ui-static-assets-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: AgentUiOAC
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  UIDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt UIHostingBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt CloudFrontOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+  UIHostingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UIHostingBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ://amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${UIHostingBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${UIDistribution}"
+
+Outputs:
+  ApiEndpoint:
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}://"
+  CloudFrontDomain:
+    Value: !GetAtt UIDistribution.DomainName

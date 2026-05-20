@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     PGVECTOR_EMBEDDINGS_TABLE: str = "openapi_operation_embeddings"
     OPENAPI_EMBEDDING_DIM: int = 1536
     CONVERSATION_TTL_DAYS: int = 0  # 0 = no TTL
+    
+    GUARDRAIL_ID: str = ""
+    GUARDRAIL_VERSION: str = ""
 
     BEDROCK_EMBEDDING_MODEL: str = "amazon.titan-embed-text-v2:0"
     OPENAPI_SPEC_FETCH_TIMEOUT_SECONDS: float = 15.0

@@ -55,7 +55,13 @@ class BedrockProvider(BaseLLMProvider):
             model=model,
             max_tokens=max_tokens,
             messages=self._build_messages(messages),
+            extra_body={}
         )
+        if settings.GUARDRAIL_ID and settings.GUARDRAIL_VERSION:
+            kwargs["extra_body"]["amazon-bedrock-guardrailConfig"] = {
+                "guardrailIdentifier": settings.GUARDRAIL_ID,
+                "guardrailVersion": settings.GUARDRAIL_VERSION
+            }
         if system_prompt:
             kwargs["system"] = system_prompt
         if tools:
@@ -97,7 +103,14 @@ class BedrockProvider(BaseLLMProvider):
             model=model,
             max_tokens=max_tokens,
             messages=self._build_messages(messages),
+            extra_body={}
         )
+        if settings.GUARDRAIL_ID and settings.GUARDRAIL_VERSION:
+            kwargs["extra_body"]["amazon-bedrock-guardrailConfig"] = {
+                "guardrailIdentifier": settings.GUARDRAIL_ID,
+                "guardrailVersion": settings.GUARDRAIL_VERSION,
+                "streamProcessingMode": "SYNCHRONOUS",
+            }
         if system_prompt:
             kwargs["system"] = system_prompt
         if tools:
