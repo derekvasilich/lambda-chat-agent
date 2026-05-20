@@ -28,6 +28,7 @@ flowchart LR
     end
 
     subgraph LLMs["LLM Providers"]
+        Guardrails[Bedrock Guardrails<br/>Inline Policy Filter]
         Bedrock[AWS Bedrock]
         Anthropic[Anthropic API]
         OpenAI[OpenAI API]
@@ -59,7 +60,11 @@ flowchart LR
     Lambda -->|Verify JWT via JWKS| Cognito
     Lambda <--> DDB
     Lambda <--> PG
-    Lambda --> Bedrock
+    
+    %% Updated Routing for Inline Guardrail Protection
+    Lambda -->|AsyncAnthropicBedrock + extra_body| Guardrails
+    Guardrails <-->|Protected Stream| Bedrock
+    
     Lambda --> Anthropic
     Lambda --> OpenAI
     Lambda --> Custom
@@ -71,6 +76,9 @@ flowchart LR
     OD -->|forwarded JWT or service creds| Svc1
     OD -->|forwarded JWT or service creds| Svc2
     OD -->|forwarded JWT or service creds| SvcN
+
+    %% Visual Styling Anchor for Security Node
+    style Guardrails fill:#f96,stroke:#333,stroke-width:2px;
 ```
 
 **Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway forwards the request to Lambda, where the FastAPI app validates the JWT directly against Cognito's JWKS endpoint and verifies the expected claims — see [app/auth/jwt.py](app/auth/jwt.py). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, stores OpenAPI spec source metadata and pgvector embeddings in PostgreSQL, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
@@ -82,28 +90,29 @@ flowchart LR
 ```
 chat-agent/
 ├── app/
-│   ├── main.py              # FastAPI app, CORS, rate limiting, lifespan, includes AWS Lambda support
-│   ├── config.py            # Pydantic settings from .env
-│   ├── dynamodb.py          # helper functions for accessing DynamoDB conversations/messages
-│   ├── models/db.py         # Conversation, Message, SpecSource models
-│   ├── auth/jwt.py          # OAuth2 JWKS validation for AWS Cognito
-│   ├── llm/                 # Pluggable providers: Anthropic, OpenAI, Bedrock, and Custom
-│   ├── tools/               # Tool registry + Calculator + WebSearch + OpenAPI Discovery
-│   ├── openapi/             # OpenAPI spec fetcher, parser, embedder, auth resolvers, registry
-│   ├── routers/             # One router per resource group (incl. /spec-sources admin)
-│   └── middleware/          # SlowAPI rate limiter keyed by user sub
+│   ├── main.py              <-- FastAPI app, CORS, rate limiting, lifespan, includes AWS Lambda support
+│   ├── config.py            <-- Pydantic settings from .env
+│   ├── dynamodb.py          <-- helper functions for accessing DynamoDB conversations/messages
+│   ├── models/db.py         <-- Conversation, Message, SpecSource models
+│   ├── auth/jwt.py          <-- OAuth2 JWKS validation for AWS Cognito
+│   ├── llm/                 <-- Pluggable providers: Anthropic, OpenAI, Bedrock, and Custom
+│   ├── tools/               <-- Tool registry + Calculator + WebSearch + OpenAPI Discovery
+│   ├── openapi/             <-- OpenAPI spec fetcher, parser, embedder, auth resolvers, registry
+│   ├── routers/             <-- One router per resource group (incl. /spec-sources admin)
+│   └── middleware/          <-- SlowAPI rate limiter keyed by user sub
 ├── scripts/
-│   ├── create_tables.py     # a Lambda function for generating the DynamoDB schema
-│   └── init_postgres.py     # schema setup for Postgres spec sources and pgvector embeddings
-├── tests/                   # 83 async tests (in-memory DynamoDB via moto, mocked LLM and embeddings)
-├── docs/                    # Design docs (e.g. openapi-discovery-plan.md)
-├── deploy.sh                # a shell script for building the app and distributing it to an AWS Lambda
-├── Dockerfile
-├── docker-compose.yml       # app + dynamodb + postgres (for running locally)
-├── dynamoDB.md              
-├── migrate.py               # AWS Lambda function to migrate RDS database
-├── pyproject.toml           # main project dependencies for `uv` package manager
-└── run.sh                   # a shell script for running the Lambda using uvicorn with the AWS Lambda Web Adapter layer
+│   ├── create_tables.py     <-- a Lambda function for generating the DynamoDB schema
+│   └── init_postgres.py     <-- schema setup for Postgres spec sources and pgvector embeddings
+├── tests/                   <-- 83 async tests (in-memory DynamoDB via moto, mocked LLM and embeddings)
+├── docs/                    <-- Design docs (e.g. openapi-discovery-plan.md)
+├── deploy.sh                <-- a shell script for building the app and distributing it to an AWS Lambda
+├── docker-compose.yml       <-- app + dynamodb + postgres (for running locally)
+├── Dockerfile               <-- dockerfile for the app
+├── network-and-data.yml     <-- VPC, Endpoints, Cognito, DynamoDB, and RDS PostgreSQL
+├── pyproject.toml           <-- main project dependencies for `uv` package manager
+├── template.yml             <-- Main SAM template
+├── migrate.py               <-- AWS Lambda function to migrate RDS database
+└── run.sh                   <-- a shell script for running the Lambda using uvicorn with the AWS Lambda Web Adapter layer
 ```
 
 ## 1. Install & Run Locally
