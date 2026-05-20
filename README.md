@@ -17,14 +17,22 @@ flowchart LR
         Cognito[Cognito User Pool<br/>OAuth2 / JWKS]
     end
 
-    subgraph API["API Layer"]
-        APIGW[API Gateway]
-        Lambda[Lambda<br/>FastAPI + Lambda Web Adapter<br/>JWT validation via JWKS]
-    end
+    %% Parent Secure Perimeter
+    subgraph EnterpriseVPC["🔒 AWS VPC (Private Subnets)"]
+        
+        subgraph API["API Layer"]
+            APIGW[API Gateway]
+            Lambda[Lambda<br/>FastAPI + Lambda Web Adapter<br/>JWT validation via JWKS]
+        end
 
-    subgraph Data["Data"]
-        DDB[(DynamoDB<br/>conversations · messages)]
-        PG[(Postgres<br/>spec_sources · operation embeddings)]
+        subgraph Data["Data"]
+            DDB[(DynamoDB<br/>conversations · messages)]
+            PG[(Postgres<br/>spec_sources · operation embeddings)]
+        end
+        
+        %% Network Gateways for Secure Data Exfiltration/Inference
+        VPCE[Bedrock VPC Endpoint<br/>AWS PrivateLink]:::network
+        NAT[NAT Gateway<br/>Egress-Only Internet]:::network
     end
 
     subgraph LLMs["LLM Providers"]
@@ -51,34 +59,44 @@ flowchart LR
         SvcN[...]
     end
 
+    %% Client/Edge Edge Traffic
     User -->|HTTPS| CF
     CF --> S3
     User -->|OAuth2 sign-in| Cognito
     Cognito -. JWT .-> User
     User -->|Bearer JWT<br/>/v1/*| APIGW
     APIGW --> Lambda
+    
+    %% Internal VPC Routing
     Lambda -->|Verify JWT via JWKS| Cognito
     Lambda <--> DDB
     Lambda <--> PG
-    
-    %% Updated Routing for Inline Guardrail Protection
-    Lambda -->|AsyncAnthropicBedrock + extra_body| Guardrails
-    Guardrails <-->|Protected Stream| Bedrock
-    
-    Lambda --> Anthropic
-    Lambda --> OpenAI
-    Lambda --> Custom
-    Lambda --> Calc
-    Lambda --> Web
-    Lambda --> OD
     OD --> PG
-    OD --> Titan
-    OD -->|forwarded JWT or service creds| Svc1
-    OD -->|forwarded JWT or service creds| Svc2
-    OD -->|forwarded JWT or service creds| SvcN
+    
+    %% SECURE OUTBOUND ROUTING THROUGH NETWORK BOUNDARIES
+    %% Bedrock goes strictly through the PrivateLink Interface Endpoint
+    Lambda -->|AsyncAnthropicBedrock| VPCE
+    VPCE -->|Private Subnet Traffic| Guardrails
+    Guardrails <-->|Protected Stream| Bedrock
+    VPCE --> Titan
+    
+    %% External Internet APIs route securely through a NAT Gateway
+    Lambda --> NAT
+    NAT --> Anthropic
+    NAT --> OpenAI
+    NAT --> Custom
+    NAT --> Calc
+    NAT --> Web
+    NAT --> OD
+    
+    OD -->|NAT Gateway Egress| Svc1
+    OD -->|NAT Gateway Egress| Svc2
+    OD -->|NAT Gateway Egress| SvcN
 
-    %% Visual Styling Anchor for Security Node
+    %% Styling and Accents
+    classDef network fill:#cfd8dc,stroke:#37474f,stroke-width:2px;
     style Guardrails fill:#f96,stroke:#333,stroke-width:2px;
+    style EnterpriseVPC fill:#fafafa,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5;
 ```
 
 **Request flow.** The browser loads the SPA from S3 via CloudFront, signs in against Cognito to receive a JWT, then calls `/v1/*` on API Gateway with the token. API Gateway forwards the request to Lambda, where the FastAPI app validates the JWT directly against Cognito's JWKS endpoint and verifies the expected claims — see [app/auth/jwt.py](app/auth/jwt.py). The FastAPI app runs in Lambda behind the AWS Lambda Web Adapter, persists conversations and messages to DynamoDB, stores OpenAPI spec source metadata and pgvector embeddings in PostgreSQL, fans out to the selected LLM provider, and executes any returned tool calls in a loop (up to 10 iterations) before returning the assistant reply.
