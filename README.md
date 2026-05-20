@@ -5,7 +5,7 @@ A nearly production-ready AI agent chat API with per-user conversation memory, m
 ## Architecture
 
 ```mermaid
-flowchart LR
+fflowchart LR
     User([User Browser])
 
     subgraph Frontend["Static UI"]
@@ -29,28 +29,26 @@ flowchart LR
             DDB[(DynamoDB<br/>conversations · messages)]
             PG[(Postgres<br/>spec_sources · operation embeddings)]
         end
+
+        subgraph Tools["Internal Tool Registry"]
+            Calc[Calculator]
+            Web[WebSearch]
+            OD[OpenAPI Discovery]
+        end
         
-        %% Network Gateways for Secure Data Exfiltration/Inference
+        %% Secure Networking Boundaries inside the VPC
         VPCE[Bedrock VPC Endpoint<br/>AWS PrivateLink]:::network
         NAT[NAT Gateway<br/>Egress-Only Internet]:::network
     end
 
-    subgraph LLMs["LLM Providers"]
+    subgraph LLMs["Approved Enterprise LLM Providers"]
         Guardrails[Bedrock Guardrails<br/>Inline Policy Filter]
         Bedrock[AWS Bedrock]
-        Anthropic[Anthropic API]
-        OpenAI[OpenAI API]
-        Custom[Custom<br/>OpenAI-compatible]
+        Custom[Internal Enterprise LLM<br/>Private VPC Endpoint]
     end
 
     subgraph Embed["Embeddings"]
         Titan[Bedrock<br/>Titan v2]
-    end
-
-    subgraph Tools["Tool Registry"]
-        Calc[Calculator]
-        Web[WebSearch]
-        OD[OpenAPI Discovery]
     end
 
     subgraph Specs["External OpenAPI Services"]
@@ -71,27 +69,31 @@ flowchart LR
     Lambda -->|Verify JWT via JWKS| Cognito
     Lambda <--> DDB
     Lambda <--> PG
-    OD --> PG
     
+    %% Tool Orchestration inside the VPC
+    Lambda --> Calc
+    Lambda --> Web
+    Lambda --> OD
+    OD --> PG
+    OD --> Titan
+
     %% SECURE OUTBOUND ROUTING THROUGH NETWORK BOUNDARIES
-    %% Bedrock goes strictly through the PrivateLink Interface Endpoint
+    %% Bedrock & Embeddings go strictly through the PrivateLink Interface Endpoint
     Lambda -->|AsyncAnthropicBedrock| VPCE
     VPCE -->|Private Subnet Traffic| Guardrails
     Guardrails <-->|Protected Stream| Bedrock
     VPCE --> Titan
     
-    %% External Internet APIs route securely through a NAT Gateway
-    Lambda --> NAT
-    NAT --> Anthropic
-    NAT --> OpenAI
-    NAT --> Custom
-    NAT --> Calc
-    NAT --> Web
-    NAT --> OD
+    %% Internal private model routing bypassing public internet
+    Lambda -->|Secure Internal Route| Custom
     
-    OD -->|NAT Gateway Egress| Svc1
-    OD -->|NAT Gateway Egress| Svc2
-    OD -->|NAT Gateway Egress| SvcN
+    %% External Internet Outbound API calls route through the NAT Gateway
+    Web --> NAT
+    OD -->|forwarded JWT or service creds| NAT
+    
+    NAT -->|Secure Egress| Svc1
+    NAT -->|Secure Egress| Svc2
+    NAT -->|Secure Egress| SvcN
 
     %% Styling and Accents
     classDef network fill:#cfd8dc,stroke:#37474f,stroke-width:2px;
