@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 );
 
 CREATE INDEX IF NOT EXISTS idx_{table_name}_spec_id ON {table_name} (spec_id);
+
+CREATE INDEX IF NOT EXISTS idx_hnsw_{table_name}_spec_id ON {table_name} USING hnsw (vector vector_cosine_ops);
 """
 
 async def main() -> None:

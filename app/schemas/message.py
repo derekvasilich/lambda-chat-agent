@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 
 
 class SendMessageRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=1000, examples=["What is the capital of France?"])
+    content: str = Field(..., min_length=1, max_length=5000, examples=["What is the capital of France?"])
 
     model_config = {"json_schema_extra": {"example": {"content": "What is the capital of France?"}}}
 
