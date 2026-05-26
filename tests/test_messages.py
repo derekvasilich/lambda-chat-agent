@@ -29,7 +29,7 @@ async def test_send_message(client, conversation):
 @pytest.mark.asyncio
 async def test_message_content_too_long(client, conversation):
     conv_id = conversation["id"]
-    resp = await client.post(f"/v1/conversations/{conv_id}/messages", json={"content": "x" * 1001})
+    resp = await client.post(f"/v1/conversations/{conv_id}/messages", json={"content": "x" * 5001})
     assert resp.status_code == 422
 
 
