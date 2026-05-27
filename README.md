@@ -118,6 +118,9 @@ chat-agent/
 │   ├── openapi/             <-- OpenAPI spec fetcher, parser, embedder, auth resolvers, registry
 │   ├── routers/             <-- One router per resource group (incl. /spec-sources admin)
 │   └── middleware/          <-- SlowAPI rate limiter keyed by user sub
+├── aws/
+│   ├── network-and-data.yml <-- VPC, Endpoints, Cognito, DynamoDB, and RDS PostgreSQL
+│   └── template.yml         <-- Main SAM template
 ├── scripts/
 │   ├── create_tables.py     <-- a Lambda function for generating the DynamoDB schema
 │   └── init_postgres.py     <-- schema setup for Postgres spec sources and pgvector embeddings
@@ -126,9 +129,7 @@ chat-agent/
 ├── deploy.sh                <-- a shell script for building the app and distributing it to an AWS Lambda
 ├── docker-compose.yml       <-- app + dynamodb + postgres (for running locally)
 ├── Dockerfile               <-- dockerfile for the app
-├── network-and-data.yml     <-- VPC, Endpoints, Cognito, DynamoDB, and RDS PostgreSQL
 ├── pyproject.toml           <-- main project dependencies for `uv` package manager
-├── template.yml             <-- Main SAM template
 ├── migrate.py               <-- AWS Lambda function to migrate RDS database
 └── run.sh                   <-- a shell script for running the Lambda using uvicorn with the AWS Lambda Web Adapter layer
 ```
