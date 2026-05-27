@@ -21,7 +21,6 @@ flowchart LR
     subgraph EnterpriseVPC["🔒 AWS VPC (Private Subnets)"]
         
         subgraph API["API Layer"]
-            APIGW[API Gateway]
             Lambda[Lambda<br/>FastAPI + Lambda Web Adapter<br/>JWT validation via JWKS]
         end
 
@@ -62,8 +61,7 @@ flowchart LR
     CF --> S3
     User -->|OAuth2 sign-in| Cognito
     Cognito -. JWT .-> User
-    User -->|Bearer JWT<br/>/v1/*| APIGW
-    APIGW --> Lambda
+    User -->|Bearer JWT<br/>/v1/*| Lambda
     
     %% Internal VPC Routing
     Lambda -->|Verify JWT via JWKS| Cognito
