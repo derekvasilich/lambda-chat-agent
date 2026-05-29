@@ -1,7 +1,8 @@
 import json
+import time
 from typing import Optional, AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.dynamodb import get_messages_table
@@ -16,7 +17,6 @@ from app.llm import get_provider, LLMMessage
 from app.openapi.auth import RequestContext
 from app.openapi.discovery_context import (
     DiscoveryContext,
-    clear_discovery_context,
     set_discovery_context,
 )
 from app.tools.registry import get_tools_for_conversation, get_tool
@@ -61,6 +61,44 @@ async def _build_augmented_system_prompt(
         return f"{base_prompt}\n\n{spec_block}"
     return spec_block
 
+def _log_emf_metrics(
+    model_id: str,
+    user_group: str,
+    input_tokens: int,
+    output_tokens: int,
+    latency_ms: int
+):
+    """
+    Prints a valid CloudWatch Embedded Metric Format (EMF) payload to stdout.
+    AWS extracts these metrics asynchronously with zero performance impact.
+    """
+    emf_payload = {
+        "_aws": {
+            "Timestamp": int(time.time() * 1000),
+            "CloudWatchMetrics": [
+                {
+                    "Namespace": "GenAI-Enterprise-Platform",
+                    "Dimensions": [["ModelId", "UserGroup"]],
+                    "Metrics": [
+                        {"Name": "InputTokens", "Unit": "Count"},
+                        {"Name": "OutputTokens", "Unit": "Count"},
+                        {"Name": "Latency", "Unit": "Milliseconds"}
+                    ]
+                }
+            ]
+        },
+        # These fields map directly to your Dimensions
+        "ModelId": model_id,
+        "UserGroup": user_group,
+        # These fields map directly to your Metrics
+        "InputTokens": input_tokens,
+        "OutputTokens": output_tokens,
+        "Latency": latency_ms,
+        # Contextual metadata for searching logs (not turned into metrics)
+        "Environment": "Production"
+    }
+    # Printing to stdout automatically registers the metric in CloudWatch
+    print(json.dumps(emf_payload))
 
 @router.get(
     "/conversations/{conversation_id}/messages",
@@ -94,6 +132,7 @@ async def send_message(
     request: Request,
     conversation_id: str,
     body: SendMessageRequest,
+    background_tasks: BackgroundTasks,
     stream: bool = Query(False),
     conv_repo: ConversationRepository = Depends(get_conv_repo),
     msg_repo: MessageRepository = Depends(get_msg_repo),
@@ -148,6 +187,7 @@ async def send_message(
                     model_used = conv.model
                     input_tokens = 0
                     output_tokens = 0
+                    start_time = time.time()
 
                     async for event in provider.stream(
                         messages=llm_messages,
@@ -178,6 +218,15 @@ async def send_message(
                             model_used=model_used,
                             token_count=input_tokens + output_tokens,
                         )
+                        background_tasks.add_task(
+                            _log_emf_metrics,
+                            model_used,
+                            user.sub,
+                            input_tokens,
+                            output_tokens,
+                            int((time.time() - start_time) * 1000)
+                        )
+                        start_time = time.time()
                         llm_messages.append(LLMMessage(
                             role="assistant",
                             content=assistant_text,
@@ -225,6 +274,14 @@ async def send_message(
                         model_used=model_used,
                         token_count=input_tokens + output_tokens,
                     )
+                    background_tasks.add_task(
+                        _log_emf_metrics,
+                        model_used,
+                        user.sub,
+                        input_tokens,
+                        output_tokens,
+                        int((time.time() - start_time) * 1000)
+                    )
                     yield "data: [DONE]\n\n"
                     return
 
@@ -238,6 +295,7 @@ async def send_message(
     # Non-streaming: agentic tool loop
     final_response: Optional[MessageResponse] = None
     for _ in range(10):
+        start_time = time.time()
         llm_resp = await provider.complete(
             messages=llm_messages,
             model=conv.model,
@@ -253,6 +311,15 @@ async def send_message(
                 model_used=llm_resp.model,
                 token_count=llm_resp.input_tokens + llm_resp.output_tokens,
             )
+            background_tasks.add_task(
+                _log_emf_metrics,
+                llm_resp.model,
+                user.sub,
+                llm_resp.input_tokens,
+                llm_resp.output_tokens,
+                int((time.time() - start_time) * 1000)
+            )
+            start_time = time.time()
             llm_messages.append(LLMMessage(
                 role="assistant",
                 content=llm_resp.content,
@@ -283,6 +350,14 @@ async def send_message(
                 content=llm_resp.content,
                 model_used=llm_resp.model,
                 token_count=llm_resp.input_tokens + llm_resp.output_tokens,
+            )
+            background_tasks.add_task(
+                _log_emf_metrics,
+                llm_resp.model,
+                user.sub,
+                llm_resp.input_tokens,
+                llm_resp.output_tokens,
+                int((time.time() - start_time) * 1000)
             )
             break
 
