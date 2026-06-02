@@ -1,6 +1,6 @@
 from typing import Dict, List
 from app.tools.base import BaseTool
-from app.tools.calculator import CalculatorTool, WebSearchStubTool
+from app.tools.basic_tools import CalculatorTool, ReadAttachmentContent, WebSearchStubTool
 
 _REGISTRY: Dict[str, BaseTool] = {}
 
@@ -28,7 +28,7 @@ def get_tools_for_conversation(enabled_tools: List[str]) -> List[BaseTool]:
 # Register built-in tools
 register_tool(CalculatorTool())
 register_tool(WebSearchStubTool())
-
+register_tool(ReadAttachmentContent())
 
 def register_default_openapi_discovery() -> None:
     from app.config import settings

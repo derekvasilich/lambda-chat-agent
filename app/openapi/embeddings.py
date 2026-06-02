@@ -24,10 +24,15 @@ class TitanBedrockEmbedder:
         async with self._session.client("bedrock-runtime", region_name=self.region) as client:
             vectors: List[List[float]] = []
             for text in texts:
-                body = json.dumps({"inputText": text})
+                payload = {
+                    "inputText": text,
+                    "dimensions": int(settings.OPENAPI_EMBEDDING_DIM),
+                    "embeddingTypes": ["float"],
+                    "normalize": True,
+                }
                 resp = await client.invoke_model(
                     modelId=self.model_id,
-                    body=body,
+                    body=json.dumps(payload),
                     accept="application/json",
                     contentType="application/json",
                 )

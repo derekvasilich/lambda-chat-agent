@@ -2,6 +2,7 @@ import pytest
 
 from app.openapi.embeddings import EmbeddingIndex, index_operations
 from app.openapi.operation import Operation
+from app.openapi.pgvector import _format_vector
 
 
 class StubEmbedder:
@@ -101,3 +102,7 @@ async def test_mismatched_dims_returns_zero_similarity():
     # Query with wrong dim
     results = await index.search([1.0, 0.0, 0.0], spec_ids=None, top_k=5)
     assert results[0][2] == 0.0
+
+
+def test_format_vector_for_pgvector():
+    assert _format_vector([0.1, -0.2, 3.0]) == "[0.1,-0.2,3.0]"

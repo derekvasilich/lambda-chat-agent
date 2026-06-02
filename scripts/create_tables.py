@@ -13,7 +13,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
-
 load_dotenv()
 
 import boto3
@@ -23,6 +22,7 @@ ENDPOINT_URL = os.getenv("DYNAMODB_ENDPOINT_URL", "")
 REGION = os.getenv("AWS_REGION", "us-east-1")
 TABLE_CONVERSATIONS = os.getenv("DYNAMODB_TABLE_CONVERSATIONS", "chat_conversations")
 TABLE_MESSAGES = os.getenv("DYNAMODB_TABLE_MESSAGES", "chat_messages")
+TABLE_DOCUMENTS = os.getenv("DYNAMODB_TABLE_DOCUMENTS", "chat_documents")
 
 TABLE_DEFINITIONS = [
     {
@@ -59,6 +59,28 @@ TABLE_DEFINITIONS = [
         ],
         "BillingMode": "PAY_PER_REQUEST",
     },
+    {
+        "TableName": TABLE_DOCUMENTS,
+        "KeySchema": [
+            {"AttributeName": "object_key", "KeyType": "HASH"},
+        ],
+        "AttributeDefinitions": [
+            {"AttributeName": "object_key", "AttributeType": "S"},
+            {"AttributeName": "user_id", "AttributeType": "S"},
+            {"AttributeName": "created_at", "AttributeType": "S"},
+        ],
+        "GlobalSecondaryIndexes": [
+            {
+                "IndexName": "user_id-created_at-index",
+                "KeySchema": [
+                    {"AttributeName": "user_id", "KeyType": "HASH"},
+                    {"AttributeName": "created_at", "KeyType": "RANGE"},
+                ],
+                "Projection": {"ProjectionType": "ALL"},
+            }
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+    }
 ]
 
 

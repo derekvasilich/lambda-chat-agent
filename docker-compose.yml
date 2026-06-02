@@ -50,7 +50,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/chat_agent}
       PGVECTOR_EMBEDDINGS_TABLE: ${PGVECTOR_EMBEDDINGS_TABLE:-openapi_operation_embeddings}
-      OPENAPI_EMBEDDING_DIM: ${OPENAPI_EMBEDDING_DIM:-1536}
+      OPENAPI_EMBEDDING_DIM: ${OPENAPI_EMBEDDING_DIM:-1024}
     command: python scripts/init_postgres.py
 
   app:

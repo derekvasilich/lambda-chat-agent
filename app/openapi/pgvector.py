@@ -3,6 +3,10 @@ from typing import List, Optional
 import asyncpg
 
 
+def _format_vector(vector: List[float]) -> str:
+    return "[" + ",".join(str(v) for v in vector) + "]"
+
+
 class PgvectorEmbeddingIndex:
     def __init__(self, pool_factory, table_name: str):
         self._pool_factory = pool_factory
@@ -15,11 +19,11 @@ class PgvectorEmbeddingIndex:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
-                f"INSERT INTO {self._table_name} (spec_id, operation_id, vector) VALUES ($1, $2, $3) "
+                f"INSERT INTO {self._table_name} (spec_id, operation_id, vector) VALUES ($1, $2, $3::vector) "
                 "ON CONFLICT (spec_id, operation_id) DO UPDATE SET vector = EXCLUDED.vector",
                 spec_id,
                 op_id,
-                vector,
+                _format_vector(vector),
             )
 
     async def remove_spec(self, spec_id: str) -> None:
@@ -48,20 +52,21 @@ class PgvectorEmbeddingIndex:
     ) -> List[tuple[str, str, float]]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
+            query_vector_param = _format_vector(query_vector)
             if spec_ids:
                 rows = await conn.fetch(
-                    f"SELECT spec_id, operation_id, 1 - (vector <#> $1) AS score "
+                    f"SELECT spec_id, operation_id, 1 - (vector <#> $1::vector) AS score "
                     f"FROM {self._table_name} WHERE spec_id = ANY($2::text[]) "
-                    "ORDER BY vector <#> $1 LIMIT $3",
-                    query_vector,
+                    "ORDER BY vector <#> $1::vector LIMIT $3",
+                    query_vector_param,
                     spec_ids,
                     top_k,
                 )
             else:
                 rows = await conn.fetch(
-                    f"SELECT spec_id, operation_id, 1 - (vector <#> $1) AS score "
-                    f"FROM {self._table_name} ORDER BY vector <#> $1 LIMIT $2",
-                    query_vector,
+                    f"SELECT spec_id, operation_id, 1 - (vector <#> $1::vector) AS score "
+                    f"FROM {self._table_name} ORDER BY vector <#> $1::vector LIMIT $2",
+                    query_vector_param,
                     top_k,
                 )
             return [(row["spec_id"], row["operation_id"], row["score"]) for row in rows]

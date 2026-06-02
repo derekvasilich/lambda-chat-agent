@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 import asyncpg
-from pydantic import json
+import json
 
 from app.models.db import utcnow
 from app.schemas.spec_source import SpecSourceCreate, SpecSourceResponse

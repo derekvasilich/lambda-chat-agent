@@ -9,7 +9,7 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 PGVECTOR_EMBEDDINGS_TABLE = os.getenv("PGVECTOR_EMBEDDINGS_TABLE", "openapi_operation_embeddings")
-OPENAPI_EMBEDDING_DIM = int(os.getenv("OPENAPI_EMBEDDING_DIM", "1536"))
+OPENAPI_EMBEDDING_DIM = int(os.getenv("OPENAPI_EMBEDDING_DIM", "1024"))
 
 def _schema_sql(table_name: str, dim: int) -> str:
     return f"""

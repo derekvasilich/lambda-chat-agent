@@ -294,7 +294,7 @@ All config is via environment variables (or a `.env` file). Copy `.env.example` 
 | `OPENAPI_SPEC_FETCH_TIMEOUT_SECONDS` | Timeout for fetching upstream OpenAPI specs | `15.0` |
 | `OPENAPI_LIST_OPERATIONS_TOP_K` | Max operations returned by `list_operations` | `20` |
 | `PGVECTOR_EMBEDDINGS_TABLE` | Name of Postgres Embeddings table | `openapi_operation_embeddings` |
-| `OPENAPI_EMBEDDING_DIM` | Dimension of OpenAPI operation embeddings | `1536` |
+| `OPENAPI_EMBEDDING_DIM` | Dimension of OpenAPI operation embeddings | `1024` |
 | `OPENAPI_AUTH_*` (per-spec env vars) | Service-to-service credentials referenced by `bearer_env`/`api_key_env`/`basic_env` auth configs (e.g. `BILLING_API_TOKEN`) | — |
 
 ## Design Notes

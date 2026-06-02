@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import aioboto3
 from app.config import settings
@@ -14,17 +13,14 @@ async def get_dynamodb_resource():
     async with _session.resource("dynamodb", **kwargs) as dynamodb:
         yield dynamodb
 
-
 async def get_conversations_table():
     async with get_dynamodb_resource() as dynamodb:
         yield await dynamodb.Table(settings.DYNAMODB_TABLE_CONVERSATIONS)
-
 
 async def get_messages_table():
     async with get_dynamodb_resource() as dynamodb:
         yield await dynamodb.Table(settings.DYNAMODB_TABLE_MESSAGES)
 
-
-async def get_spec_sources_table():
+async def get_documents_table():
     async with get_dynamodb_resource() as dynamodb:
-        yield await dynamodb.Table(settings.DYNAMODB_TABLE_SPEC_SOURCES)
+        yield await dynamodb.Table(settings.DYNAMODB_TABLE_DOCUMENTS)

@@ -12,7 +12,6 @@ _SAFE_OPS = {
     ast.USub: operator.neg,
 }
 
-
 def _safe_eval(node):
     if isinstance(node, ast.Constant):
         return node.value
@@ -25,6 +24,27 @@ def _safe_eval(node):
         return -_safe_eval(node.operand)
     raise ValueError(f"Unsupported expression: {type(node)}")
 
+
+class ReadAttachmentContent(BaseTool):
+    name = "read_attachment_content"
+    description = "Fetches the full raw text content of an uploaded user file attachment from the secure database using its unique object key. This tool is used to retrieve the content of documents that have been uploaded and processed, allowing the agent to read and analyze the text for answering user queries or performing tasks based on the document's information."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "file_name": {
+                "type": "string",
+                "description": "The name of the file attachment, including its extension, found inside the file-name attribute of the <attachment /> tag.",
+            },
+            "object_key": {
+                "type": "string",
+                "description": "The unique identifier string found inside the object-key attribute of the <attachment /> tag.",
+            }
+        },
+        "required": ["object_key"],
+    }
+    async def execute(self, object_key: str, **kwargs) -> str:
+        # Placeholder implementation - in a real implementation, this would read the file content
+        return f"[Stub] Content of '{object_key}' would be returned here."   
 
 class CalculatorTool(BaseTool):
     name = "calculator"

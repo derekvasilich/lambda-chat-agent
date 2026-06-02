@@ -31,11 +31,12 @@ class Settings(BaseSettings):
 
     DYNAMODB_TABLE_CONVERSATIONS: str = "chat_conversations"
     DYNAMODB_TABLE_MESSAGES: str = "chat_messages"
+    DYNAMODB_TABLE_DOCUMENTS: str = "chat_documents"
     DYNAMODB_ENDPOINT_URL: str = ""  # empty = real AWS; "http://localhost:8000" for DynamoDB Local
-    AWS_REGION: str = "us-east-1"
+    AWS_REGION: str = "ca-central-1"
     DATABASE_URL: str = ""
     PGVECTOR_EMBEDDINGS_TABLE: str = "openapi_operation_embeddings"
-    OPENAPI_EMBEDDING_DIM: int = 1536
+    OPENAPI_EMBEDDING_DIM: int = 1024
     CONVERSATION_TTL_DAYS: int = 0  # 0 = no TTL
     
     GUARDRAIL_ID: str = ""
