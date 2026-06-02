@@ -6,7 +6,7 @@ Built from the ground up to satisfy the strict data governance, zero-trust netwo
 flowchart LR
     User([User Browser])
 
-    subgraph Frontend["Static UI"]
+    subgraph Frontend["Static Vue 3 UI"]
         CF[CloudFront]
         S3[(S3 Bucket<br/>SPA assets)]
     end
@@ -23,7 +23,7 @@ flowchart LR
         end
 
         subgraph Data["Secure Data Tier"]
-            DDB[(DynamoDB<br/>Conversations & State)]
+            DDB[(DynamoDB<br/>Conversations, Documents, & State)]
             PG[(PostgreSQL + pgvector<br/>Spec Sources, Embeddings & Document Text)]
             S3_Doc[(S3 Bucket<br/>🔒 Encrypted Document Storage)]:::network
         end
@@ -103,8 +103,8 @@ flowchart LR
     User -->|Direct HTTPS Upload via Pre-Signed URL| S3_Doc
     S3_Doc -->|S3 Event Notification| S3_Event
     S3_Event --> Text_Lambda
-    Text_Lambda -->|Persist Extracted Structural Text| PG
-    Lambda <-->|Query Text Segments via ReadAttachmentContent| PG    
+    Text_Lambda -->|Persist Extracted Structural Text| DDB
+    Lambda <-->|Query Text Segments via ReadAttachmentContent| DDB    
 
     %% Styling and Accents
     classDef network fill:#cfd8dc,stroke:#37474f,stroke-width:2px;
