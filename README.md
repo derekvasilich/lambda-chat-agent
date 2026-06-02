@@ -24,7 +24,7 @@ flowchart LR
 
         subgraph Data["Secure Data Tier"]
             DDB[(DynamoDB<br/>Conversations, Documents, & State)]
-            PG[(PostgreSQL + pgvector<br/>Spec Sources, Embeddings & Document Text)]
+            PG[(PostgreSQL + pgvector<br/>Spec Sources & Open API Operation Embeddings)]
             S3_Doc[(S3 Bucket<br/>🔒 Encrypted Document Storage)]:::network
         end
 
