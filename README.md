@@ -113,7 +113,8 @@ flowchart LR
 ```
 ### Core Execution Mechanisms
 *   **Zero-Trust Token Validation:** The client application initializes authentication natively through AWS Cognito. Direct compute layers validate incoming Bearer JWT tokens in-memory against Cognito's JSON Web Key Sets (JWKS) endpoint [app/auth/jwt.py](app/auth/jwt.py), guaranteeing cryptographically secure access isolation before executing runtime processing.
-*   **Autonomous Tool Discovery & Execution:** When downstream services are enabled on a user thread, the execution manager exposes a semantic `openapi_discovery` engine. The platform utilizes vector similarity lookups via `pgvector` inside a PostgreSQL cluster to execute real-time schema discovery, operations mapping, and secure service-to-service credential inheritance (`passthrough_jwt`, `bearer_env`) across decoupled microservice architecture pools.*   **Infrastructure Cost Optimization (TCO):** Running the unified FastAPI framework behind the AWS Lambda Web Adapter eliminates traditional persistent compute overhead, maintaining a near-zero cost layout during idle times while scaling instantly to accommodate enterprise traffic spikes.
+*   **Autonomous Tool Discovery & Execution:** When downstream services are enabled on a user thread, the execution manager exposes a semantic `openapi_discovery` engine. The platform utilizes vector similarity lookups via `pgvector` inside a PostgreSQL cluster to execute real-time schema discovery, operations mapping, and secure service-to-service credential inheritance (`passthrough_jwt`, `bearer_env`) across decoupled microservice architecture pools.*   
+*   **Infrastructure Cost Optimization (TCO):** Running the unified FastAPI framework behind the AWS Lambda Web Adapter eliminates traditional persistent compute overhead, maintaining a near-zero cost layout during idle times while scaling instantly to accommodate enterprise traffic spikes.
 
 ## Repository Architecture
 
@@ -146,7 +147,7 @@ chat-agent/
 └── run.sh                   <-- a shell script for running the Lambda using uvicorn with the AWS Lambda Web Adapter layer
 ```
 
-### 1. Install & Run Locally
+### Install & Run Locally
 
 ```bash
 cd chat-agent
@@ -158,7 +159,7 @@ uvicorn app.main:app --reload
 
 > **Dev auth shortcut**: leave `OAUTH2_JWKS_URL` empty in `.env` — the server accepts any JWT without verifying the signature. Generate a test token at [jwt.io](https://jwt.io) with `{"sub": "user1"}` as the payload.
 
-### 2. Relational Schema Lifecycle Management
+### Relational Schema Lifecycle Management
 
 Execute database migrations to configure the structural schema layer:
 
@@ -173,7 +174,7 @@ alembic revision --autogenerate -m "describe operational modification"
 alembic upgrade head
 ```
 
-### 3. Automated System Validation & Test Automation
+### Automated System Validation & Test Automation
 
 Launch the regression suite to run all asynchronous integration tests within a mocked infrastructure layout:
 
@@ -183,7 +184,7 @@ pytest tests/ -v
 
 *Note: The test layer provisions a low-latency, in-memory SQLite instances and fully simulates external provider endpoints via `moto`, eliminating external API overhead.*
 
-### 4. Interactive OpenAPI Documentation
+### Interactive OpenAPI Documentation
 
 *   **Swagger API Framework Interface**: [http://localhost:8000/docs](http://localhost:8000/docs)
 *   **ReDoc Schema Documentation**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
