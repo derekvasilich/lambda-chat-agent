@@ -1,5 +1,14 @@
 # Secure Enterprise GenAI Orchestration Platform (RAG & Agentic AI)
 An enterprise-grade, production-ready asynchronous AI Agent orchestration framework engineered to deliver secure, multi-tenant Retrieval-Augmented Generation (RAG) and dynamic tool automation in highly regulated environments. 
+
+---
+
+### 🌐 System Components & Repositories
+*   **Core Backend Orchestration Ingress (Current Repository)**
+*   **Vue 3 Interactive UI Chat Widget:** [Go to Frontend Repository ➔](https://github.com/derekvasilich/vue-chat-client)
+
+---
+
 ## Architectural Framework & Security Topology
 Built from the ground up to satisfy the strict data governance, zero-trust network isolation, and performance benchmarks of the Financial and Public Sectors.
 ```mermaid
