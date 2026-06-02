@@ -30,13 +30,20 @@ flowchart LR
 
         subgraph Data["Secure Data Tier"]
             DDB[(DynamoDB<br/>Conversations & State)]
-            PG[(PostgreSQL + pgvector<br/>Spec Sources & Operation Embeddings)]
+            PG[(PostgreSQL + pgvector<br/>Spec Sources, Embeddings & Document Text)]
+            S3_Doc[(S3 Bucket<br/>🔒 Encrypted Document Storage)]:::network
         end
 
         subgraph Tools["Autonomous Internal Tool Registry"]
             Calc[Calculator]
             Web[Secure WebSearch]
             OD[OpenAPI Discovery Engine]
+            RA[ReadAttachmentContent Tool]
+        end
+
+        subgraph AsyncDoc["Asynchronous Processing Tier"]
+            S3_Event[S3 ObjectCreated Trigger]:::network
+            Text_Lambda[Lambda Worker<br/>Text & PDF Extraction Pipeline]
         end
         
         %% Secure Networking Boundaries inside the VPC
@@ -96,6 +103,14 @@ flowchart LR
     NAT -->|Secure Egress Routing| Svc1
     NAT -->|Secure Egress Routing| Svc2
     NAT -->|Secure Egress Routing| SvcN
+
+    %% SECURE DOCUMENT PROCESSING FLOWS
+    Lambda -->|Generate Pre-Signed Upload URL| S3_Doc
+    User -->|Direct HTTPS Upload via Pre-Signed URL| S3_Doc
+    S3_Doc -->|S3 Event Notification| S3_Event
+    S3_Event --> Text_Lambda
+    Text_Lambda -->|Persist Extracted Structural Text| PG
+    Lambda <-->|Query Text Segments via ReadAttachmentContent| PG    
 
     %% Styling and Accents
     classDef network fill:#cfd8dc,stroke:#37474f,stroke-width:2px;
@@ -237,21 +252,36 @@ curl -N -X POST "http://localhost:8000/v1/conversations/\$CONV_ID/messages?strea
   -H "Content-Type: application/json" \
   -d '{"content":"Compile financial status report."}'
 
-# List message history (cursor-based pagination)
+# 10. List message history (cursor-based pagination)
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8000/v1/conversations/$CONV_ID/messages?limit=50"
 
-# Paginate backwards from a message ID
+# 11. Paginate backwards from a message ID
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8000/v1/conversations/$CONV_ID/messages?limit=50&before=<message_id>"
 
-# Clear all messages (keeps the conversation)
+# 12. Clear all messages (keeps the conversation)
 curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:8000/v1/conversations/$CONV_ID/messages
 
-# Delete a conversation (and all its messages)
+# 13. Delete a conversation (and all its messages)
 curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   http://localhost:8000/v1/conversations/$CONV_ID
+
+# 14. Generate a Cryptographically Secure Pre-Signed S3 Upload URL
+curl -s -X POST http://localhost:8000/v1/documents/upload-url \
+  -H "Authorization: Bearer \$TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"filename": "q4_financial_statement.pdf", "content_type": "application/pdf"}' | jq
+
+# 15. Verify Asynchronous Document Processing Status (Post-S3 Event Trigger)
+DOC_ID="<document_uuid_from_upload_response>"
+curl -H "Authorization: Bearer \$TOKEN" \
+  http://localhost:8000/v1/documents/status?document_id=\$DOC_ID
+
+# 16. Query Processed Structural Document Registries
+curl -H "Authorization: Bearer \$TOKEN" http://localhost:8000/v1/documents
+
 ```
 
 ## Containerized Orchestration (Docker Compose)
@@ -305,6 +335,10 @@ System behaviors are fully orchestrated using environment variables or localized
 *   **Asynchronous Message Streaming:** Appending `?stream=true` to message ingress paths switches the transmission layer to a high-performance Server-Sent Events (SSE) stream. Response tokens are distributed instantly as localized data chunks, terminated by an immutable `data: [DONE]` end-of-stream signal.
 *   **Dynamic Context Truncation:** To protect the model context window and optimize runtime resource consumption, the platform enforces rolling context window truncation limits (`MAX_HISTORY_MESSAGES`), which are fully overridable per conversation thread via the system configuration endpoints.
 *   **Token-Keyed Security Rate Limiting:** The platform's SlowAPI middleware layer reads the authenticated JWT `sub` claim directly to enforce secure, per-user rate limiting thresholds, safely falling back to client IP evaluation for unauthenticated public boundaries.
+*   **Context-Insulated Document Orchestration & Processing:** To eliminate heavy prompt-token expansion and reduce runtime API overhead when interacting with large corporate documents (PDF, DOCX, TXT), the platform isolates document ingestion from the core chat pipeline. 
+    1.  The client requests a cryptographically secure, short-lived **Pre-Signed S3 Upload URL**, allowing direct, encrypted transit to isolated storage without exposing application endpoints.
+    2.  An **S3 ObjectCreated Event Notification** automatically triggers an isolated asynchronous Lambda text-extraction worker, parsing and caching structural text blocks natively within a secure database cluster.
+    3.  The agent engine exposes a highly constrained `ReadAttachmentContent` tool, allowing the runtime model to selectively target, slice, and query specific document segments on-demand, maintaining a lean, cost-optimized system context window.
 
 ### 2. Scalable Semantic API Discovery (Retrieve-Then-Invoke Pattern)
 *   **White-Box Model Optimization:** Rather than registering every individual operation across multiple OpenAPI schemas as a separate tool—which rapidly exhausts model token bounds and degrades selection accuracy—the architecture aggregates discovery under a single `openapi_discovery` multi-action controller (`list_specs`, `list_operations`, `call_operation`).
