@@ -11,6 +11,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    volumes:
+      - dynamodb_data:/var/lib/dynamodb/data
 
   postgres:
     image: pgvector/pgvector:0.8.2-pg15
@@ -84,3 +86,4 @@ services:
 
 volumes:
   pgdata:
+  dynamodb_data:
