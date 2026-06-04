@@ -8,7 +8,7 @@ import urllib
 from app.auth import get_current_user, UserClaims
 from app.config import settings
 from app.repositories.documents import DocumentRepository
-from app.schemas.document import DocumentListResponse, DocumentResponse, UploadRequest, UploadResponse
+from app.schemas.document import DocumentCreate, DocumentListResponse, DocumentResponse, DocumentUpdate, DocumentUpdate, UploadRequest, UploadResponse
 from app.dynamodb import get_documents_table
 
 router = APIRouter()
@@ -71,6 +71,7 @@ async def get_document_status(
 async def generate_upload_url(
     request: UploadRequest,
     user: UserClaims = Depends(get_current_user),
+    repo=Depends(get_doc_repo),
 ):
     # Restrict file types at the gate
     allowed_types = ["application/pdf", "text/plain"]
@@ -92,7 +93,18 @@ async def generate_upload_url(
             },
             ExpiresIn=900  # 15 minutes
         )
-        
+
+        if await repo.get(user.sub, object_key):
+            await repo.update(object_key, user.sub, DocumentUpdate(
+                status="PENDING",
+            ))           
+        else:
+            await repo.create(user.sub, DocumentCreate(
+                object_key=object_key,
+                user_id=user.sub,
+                status="PENDING",
+            ))
+
         return UploadResponse(upload_url=presigned_url, object_key=object_key)
 
     except Exception as e:
