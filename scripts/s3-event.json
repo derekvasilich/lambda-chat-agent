@@ -27,7 +27,7 @@
           "arn": "arn:aws:s3:::ai-chat-documents-142731142295-ca-central-1-an"
         },
         "object": {
-          "key": "uploads/4ced8598-2041-70c1-fea4-167ad45682e5/aba.pdf",
+          "key": "uploads/4ced8598-2041-70c1-fea4-167ad45682e5/Full%20job%20description.pdf",
           "size": 1700000,
           "eTag": "0123456789abcdef0123456789abcdef",
           "sequencer": "0A1B2C3D4E5F678901"

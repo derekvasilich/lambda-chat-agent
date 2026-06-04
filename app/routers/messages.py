@@ -249,7 +249,7 @@ async def send_message(
 
                             tool = get_tool(tool_name)
                             tool_result = (
-                                await tool.execute(**tool_args)
+                                await tool.execute(user_id=user.sub, **tool_args)
                                 if tool
                                 else f"Tool '{tool_name}' not found"
                             )
@@ -332,7 +332,7 @@ async def send_message(
                 tool_args = json.loads(tool_args_raw) if isinstance(tool_args_raw, str) else tool_args_raw
                 tool = get_tool(tool_name)
 
-                tool_result = await tool.execute(**tool_args) if tool else f"Tool '{tool_name}' not found"
+                tool_result = await tool.execute(user_id=user.sub, **tool_args) if tool else f"Tool '{tool_name}' not found"
 
                 await msg_repo.add(
                     conv.id, "tool",

@@ -1,5 +1,10 @@
 import ast
 import operator
+from typing import Optional
+
+import urllib
+from app.dynamodb import get_documents_table
+from app.repositories.documents import DocumentRepository
 from app.tools.base import BaseTool
 
 _SAFE_OPS = {
@@ -31,9 +36,9 @@ class ReadAttachmentContent(BaseTool):
     parameters = {
         "type": "object",
         "properties": {
-            "file_name": {
+            "name": {
                 "type": "string",
-                "description": "The name of the file attachment, including its extension, found inside the file-name attribute of the <attachment /> tag.",
+                "description": "The name of the file attachment, including its extension, found inside the name attribute of the <attachment /> tag.",
             },
             "object_key": {
                 "type": "string",
@@ -42,9 +47,13 @@ class ReadAttachmentContent(BaseTool):
         },
         "required": ["object_key"],
     }
-    async def execute(self, object_key: str, **kwargs) -> str:
-        # Placeholder implementation - in a real implementation, this would read the file content
-        return f"[Stub] Content of '{object_key}' would be returned here."   
+    async def execute(self, object_key: str, *, user_id: Optional[str] = None, **kwargs) -> str:
+        if user_id is None:
+            raise ValueError("Missing authenticated user id for accessing attachment content.")
+        async for table in get_documents_table():
+            repo = DocumentRepository(table)
+            doc = await repo.get(user_id=user_id, object_key=urllib.parse.unquote_plus(object_key))
+            return doc.extracted_text if doc else "No content found for this attachment."
 
 class CalculatorTool(BaseTool):
     name = "calculator"
@@ -59,8 +68,7 @@ class CalculatorTool(BaseTool):
         },
         "required": ["expression"],
     }
-
-    async def execute(self, expression: str, **kwargs) -> str:
+    async def execute(self, expression: str, *, user_id: Optional[str] = None, **kwargs) -> str:
         try:
             tree = ast.parse(expression, mode="eval")
             result = _safe_eval(tree.body)
@@ -83,5 +91,5 @@ class WebSearchStubTool(BaseTool):
         "required": ["query"],
     }
 
-    async def execute(self, query: str, **kwargs) -> str:
+    async def execute(self, query: str, *, user_id: Optional[str] = None, **kwargs) -> str:
         return f"[Stub] Search results for '{query}': No real search engine connected. Configure a real search API to enable this tool."

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class BaseTool(ABC):
@@ -8,7 +8,7 @@ class BaseTool(ABC):
     parameters: Dict[str, Any]  # JSON Schema for parameters
 
     @abstractmethod
-    async def execute(self, **kwargs) -> Any:
+    async def execute(self, *, user_id: Optional[str] = None, **kwargs) -> Any:
         pass
 
     def to_openai_schema(self) -> Dict[str, Any]:

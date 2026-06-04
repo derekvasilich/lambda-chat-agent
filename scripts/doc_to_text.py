@@ -8,6 +8,8 @@ import pdfplumber
 from app.dynamodb import get_documents_table
 
 from dotenv import load_dotenv
+
+from app.schemas.document import DocumentUpdate
 load_dotenv()
 
 # Initialize AWS resource clients
@@ -43,6 +45,13 @@ async def lambda_handler(event, context):
                     "size": size
                 }
 
+                # Push the processing state directly into DynamoDB
+                await repo.update(object_key, user_id, DocumentUpdate(
+                    status="PROCESSING",
+                    etag=etag,
+                    metadata=metadata
+                ))
+
                 # 2. Establish our unique Document ID using the S3 object key
                 local_file_path = f"/tmp/processing_target.{metadata['file_extension']}"
                 s3_client.download_file(bucket_name, object_key, local_file_path)
@@ -66,11 +75,8 @@ async def lambda_handler(event, context):
                 # Update metadata with word count for observability and potential UI display
                 metadata["word_count"] = len(extracted_text.split())
 
-                # Push the processed text context and state directly into DynamoDB
-                await repo.delete(object_key)  # Ensure idempotency in case of reprocessing the same file
-                await repo.create(user_id, DocumentCreate(
-                    object_key=object_key,
-                    user_id=user_id,
+                # Push the ready text context and state directly into DynamoDB
+                await repo.update(object_key, user_id, DocumentUpdate(
                     status="READY",
                     extracted_text=extracted_text.strip(),
                     etag=etag,
@@ -88,10 +94,7 @@ async def lambda_handler(event, context):
             print(f"Critical Ingestion Failure: {str(e)}")
             # If your database item structure exists, log the failure state so the UI unblocks
             try:
-                await repo.delete(object_key)  # Ensure idempotency in case of reprocessing the same file
-                await repo.create(user_id, DocumentCreate(
-                    object_key=object_key,
-                    user_id=user_id,
+                await repo.update(object_key, user_id, DocumentUpdate(
                     status="FAILED",
                     extracted_text=str(e),
                     etag=etag,

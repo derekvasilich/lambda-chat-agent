@@ -74,7 +74,7 @@ class OpenAPIDiscoveryTool(BaseTool):
         self._auth_resolver = auth_resolver
         self._http_client_factory = http_client_factory or _default_http_client
 
-    async def execute(self, **kwargs) -> str:
+    async def execute(self, *, user_id: Optional[str] = None, **kwargs) -> str:
         action = kwargs.get("action")
         try:
             ctx = get_discovery_context()

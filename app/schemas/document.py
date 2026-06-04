@@ -3,6 +3,8 @@ from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
+StatusType = Literal["PENDING", "PROCESSING", "FAILED", "READY"]
+
 class UploadRequest(BaseModel):
     file_name: str
     file_type: str  # e.g., "application/pdf" or "text/plain"
@@ -18,8 +20,8 @@ class DocumentCreate(BaseModel):
         examples=["billing", "hr_api", "legacy_system"],
     )
     user_id: str
-    status: Literal["FAILED", "READY"] = Field(
-        examples=["FAILED", "READY"],
+    status: StatusType = Field(
+        examples=["PENDING", "PROCESSING", "FAILED", "READY"],
     )
     extracted_text: Optional[str] = Field(
         None,
@@ -40,14 +42,18 @@ class DocumentCreate(BaseModel):
     )
 
 class DocumentUpdate(BaseModel):
-    status: Optional[Literal["FAILED", "READY"]] = Field(
+    status: Optional[StatusType] = Field(
         None,
-        examples=["FAILED", "READY"],
+        examples=["PENDING", "PROCESSING", "FAILED", "READY"],
     )
     extracted_text: Optional[str] = Field(
         None,
         examples=["Updated text extracted from the document, if available."],
     )
+    etag: Optional[str] = Field(
+        None,
+        examples=["9b2cf535f27731c974343d356d109eb"],
+    )    
     metadata: Optional[Dict[str, Union[str, int, float, bool]]] = Field(
         None,
         examples=[{
@@ -62,7 +68,7 @@ class DocumentUpdate(BaseModel):
 class DocumentResponse(BaseModel):
     object_key: str
     user_id: str
-    status: Literal["FAILED", "READY"]
+    status: StatusType
     etag: Optional[str] = None
     extracted_text: Optional[str] = None
     metadata: Optional[Dict[str, Union[str, int, float, bool]]] = None
