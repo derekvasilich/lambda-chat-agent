@@ -2,14 +2,12 @@ import os
 import json
 import urllib.parse
 import boto3
-from app.repositories.documents import DocumentCreate
+from app.schemas.document import DocumentUpdate
 from app.routers.documents import DocumentRepository
 import pdfplumber
 from app.dynamodb import get_documents_table
 
 from dotenv import load_dotenv
-
-from app.schemas.document import DocumentUpdate
 load_dotenv()
 
 # Initialize AWS resource clients
@@ -17,7 +15,13 @@ s3_client = boto3.client("s3")
 
 async def lambda_handler(event, context):
     """
-    AWS Lambda handler automatically invoked by an S3 's3:ObjectCreated:Put' event.
+    AWS Lambda handler automatically invoked by an S3 's3:ObjectCreated:Put' event for injesting a new document upload. It performs the following steps:
+    1. Parses the S3 event to extract bucket name, object key, and metadata.
+    2. Creates a new document record in DynamoDB with status "PROCESSING".
+    3. Downloads the file from S3 to the Lambda's temporary storage.
+    4. Extracts text content based on file type (PDF or TXT).
+    5. Updates the DynamoDB record with the extracted text and changes status to "READY" for UI consumption.
+    6. Handles errors gracefully by updating the document status to "FAILED" if any step encounters an issue, ensuring the UI can reflect the failure state.
     """
     async for table in get_documents_table():
         repo = DocumentRepository(table)
